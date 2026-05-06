@@ -1,0 +1,7 @@
+area_min_ha,area_max_ha,preco_min,preco_max,observacao
+0,5,3500,4000,Até 5 hectares
+5,10,4000,5000,5 a 10 hectares
+10,20,5000,7500,10 a 20 hectares
+20,30,7500,10000,20 a 30 hectares
+30,40,7500,12000,30 a 40 hectares
+40,,,,Acima de 40 hectares - consultar

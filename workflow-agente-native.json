@@ -1,0 +1,100 @@
+{
+  "name": "Agente Tales - NATIVE WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "native-zapi-webhook",
+        "responseMode": "onReceived"
+      },
+      "id": "webhook-zapi",
+      "name": "Webhook Z-API (recebe mensagem)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.fromMe}}", "value2": false }
+          ]
+        }
+      },
+      "id": "filtro-fromme",
+      "name": "Ignora mensagens próprias",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Carrega base de conhecimento dos .md em conhecimento/regras\nconst fs = require('fs');\nconst path = require('path');\nconst dir = $env.CONHECIMENTO_DIR || 'C:/Users/User/Desktop/native-agente/conhecimento/regras';\nlet base = '# BASE DE CONHECIMENTO — Georreferenciamento (INCRA/SIGEF)\\n\\n';\nif (fs.existsSync(dir)) {\n  for (const f of fs.readdirSync(dir).filter(x => x.endsWith('.md')).sort()) {\n    base += fs.readFileSync(path.join(dir, f), 'utf8') + '\\n\\n---\\n\\n';\n  }\n}\nreturn [{ json: { base, telefone: $json.phone, mensagem: $json.text?.message || $json.message, nome: $json.senderName } }];"
+      },
+      "id": "carrega-conhecimento",
+      "name": "Carrega base de conhecimento",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 240]
+    },
+    {
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 1500,\n  \"system\": [\n    { \"type\": \"text\", \"text\": $json.base, \"cache_control\": { \"type\": \"ephemeral\" } },\n    { \"type\": \"text\", \"text\": \"Você é Tales, atendente virtual da NATIVE Topografia & Meio Ambiente. Ver prompt-agente.md no repo. Lead: \" + $json.nome + \" (\" + $json.telefone + \").\" }\n  ],\n  \"tools\": [\n    {\n      \"name\": \"consultar_preco_georreferenciamento\",\n      \"description\": \"Retorna faixa de preço de georreferenciamento por área em hectares.\",\n      \"input_schema\": { \"type\": \"object\", \"properties\": { \"area_hectares\": { \"type\": \"number\" } }, \"required\": [\"area_hectares\"] }\n    },\n    {\n      \"name\": \"transferir_humano\",\n      \"description\": \"Transfere o lead pro Felipe (humano).\",\n      \"input_schema\": { \"type\": \"object\", \"properties\": { \"nome_lead\": {\"type\":\"string\"}, \"telefone_lead\": {\"type\":\"string\"}, \"servico\": {\"type\":\"string\"}, \"resumo\": {\"type\":\"string\"} }, \"required\": [\"resumo\"] }\n    },\n    {\n      \"name\": \"salvar_lead\",\n      \"description\": \"Salva dados do lead no Google Sheets.\",\n      \"input_schema\": { \"type\": \"object\", \"properties\": { \"nome\": {\"type\":\"string\"}, \"telefone\": {\"type\":\"string\"}, \"servico\": {\"type\":\"string\"}, \"area_ha\": {\"type\":\"number\"}, \"cidade\": {\"type\":\"string\"}, \"urgencia\": {\"type\":\"string\"} } }\n    }\n  ],\n  \"messages\": [{ \"role\": \"user\", \"content\": $json.mensagem }]\n}"
+      },
+      "id": "claude-agent",
+      "name": "Claude (Tales)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 240]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ZAPI_BASE}}/send-text",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={ \"phone\": $node['Carrega base de conhecimento'].json.telefone, \"message\": $json.content[0].text }"
+      },
+      "id": "zapi-send",
+      "name": "Z-API send-text (responde lead)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ZAPI_BASE}}/send-text",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={ \"phone\": \"5554992215356\", \"message\": \"🔔 Lead transferido: \" + $json.resumo }"
+      },
+      "id": "zapi-felipe",
+      "name": "Notifica Felipe (transferir_humano)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 440]
+    }
+  ],
+  "connections": {
+    "Webhook Z-API (recebe mensagem)": { "main": [[{ "node": "Ignora mensagens próprias", "type": "main", "index": 0 }]] },
+    "Ignora mensagens próprias": { "main": [[{ "node": "Carrega base de conhecimento", "type": "main", "index": 0 }]] },
+    "Carrega base de conhecimento": { "main": [[{ "node": "Claude (Tales)", "type": "main", "index": 0 }]] },
+    "Claude (Tales)": { "main": [[{ "node": "Z-API send-text (responde lead)", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "_NOTAS": "Workflow base. Após importar no n8n: (1) configure as env vars do .env.example, (2) adicione nós de roteamento de tool_use (consultar_preco / transferir_humano / salvar_lead) — o Claude retorna stop_reason=tool_use que precisa ser tratado num loop, (3) configure webhook URL do Z-API apontando pra este endpoint, (4) adicione nó Google Sheets pra persistir conversa/leads."
+}

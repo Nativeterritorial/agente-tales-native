@@ -1,0 +1,8 @@
+.env
+node_modules/
+conversas.json
+leads.jsonl
+pausas.json
+*.log
+cloudflared.exe
+*.exe
