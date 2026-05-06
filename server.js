@@ -131,7 +131,9 @@ async function arquivarMidiaUnica(telefone, nomeLead, midia, proprietario, servi
       servico,
     });
 
-    const respostaCliente = `Recebi seu ${analise.tipo} 📋 ${analise.resumo_curto || ""}`.trim();
+    const resumoLimpo = (analise.resumo_curto || "").replace(/[`{}]/g, "").replace(/\s+/g, " ").trim().slice(0, 250);
+    const tipoLimpo = (analise.tipo || "documento").replace(/[`{}]/g, "");
+    const respostaCliente = `Recebi seu ${tipoLimpo} 📋 ${resumoLimpo}`.trim();
     await zapiSendText(telefone, respostaCliente);
 
     const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
@@ -221,7 +223,9 @@ async function arquivarComBufferLocal(telefone, nomeLead, midia, proprietario, s
     const dropboxPath = `${pastaDestino}/${nomeFinal}`;
     const upload = await uploadArquivo(dropboxPath, midia.bufferLocal);
 
-    const respostaCliente = `Recebi seu ${analise.tipo} 📋 ${analise.resumo_curto || ""}`.trim();
+    const resumoLimpo = (analise.resumo_curto || "").replace(/[`{}]/g, "").replace(/\s+/g, " ").trim().slice(0, 250);
+    const tipoLimpo = (analise.tipo || "documento").replace(/[`{}]/g, "");
+    const respostaCliente = `Recebi seu ${tipoLimpo} 📋 ${resumoLimpo}`.trim();
     await zapiSendText(telefone, respostaCliente);
 
     const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";

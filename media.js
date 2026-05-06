@@ -30,7 +30,7 @@ export async function analisarComVision(buffer, mimeType, contextoConversa = "")
 
   const r = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 1500,
+    max_tokens: 2500,
     messages: [{
       role: "user",
       content: [
@@ -41,23 +41,30 @@ export async function analisarComVision(buffer, mimeType, contextoConversa = "")
 
 Contexto da conversa: ${contextoConversa || "(nenhum)"}
 
-Tipos esperados:
-- CCIR (Certificado de Cadastro de Imóvel Rural) → extrair: código do imóvel, NIRF, área total, proprietário(s), validade
+Tipos esperados (use exatamente um destes valores no campo "tipo"):
+- CCIR — Certificado de Cadastro de Imóvel Rural → extrair: código do imóvel, NIRF, área total, proprietário(s), validade
 - ITR → extrair: NIRF, ano-base, valor, área
-- Matrícula → extrair: número, cartório, proprietário, área registrada, confrontantes, ônus, data da última atualização
+- matricula → extrair: número, cartório, proprietário, área registrada, confrontantes, ônus, data da última atualização
 - CAR → extrair: número CAR, status, área CAR, área de reserva, APP
-- Documento de identidade/CPF → extrair: nome, CPF, RG
-- Foto de vértice GNSS / marco de georreferenciamento
-- Foto de levantamento / planta / croqui
-- Outro
+- identidade → extrair: nome, CPF, RG
+- foto-vertice — vértice GNSS / marco de georreferenciamento
+- foto-levantamento — foto de levantamento / planta / croqui
+- planta — planta técnica / DXF / mapa
+- outro
 
-Retorne ESTRITAMENTE em JSON válido (sem markdown, sem texto extra):
+REGRAS DE SAÍDA (CRÍTICO):
+- Responda APENAS o objeto JSON puro.
+- NÃO use markdown (sem \`\`\`json, sem \`\`\`).
+- NÃO escreva nada antes ou depois do JSON.
+- "resumo_curto" deve ter no MÁXIMO 200 caracteres, em português, linguagem natural pra mandar pro cliente no WhatsApp (ex: "Matrícula 17.036 do Registro de Veranópolis, área 12,5ha, em nome de João Silva. Vigente.").
+
+Schema:
 {
   "tipo": "CCIR|ITR|matricula|CAR|identidade|foto-vertice|foto-levantamento|planta|outro",
-  "campos": { ... campos extraídos ... },
-  "validacoes": [ { "ok": true/false, "regra": "...", "detalhe": "..." } ],
-  "resumo_curto": "1-2 linhas resumindo o que é e se está OK",
-  "alertas": [ "lista de alertas, se houver" ]
+  "campos": { },
+  "validacoes": [ { "ok": true, "regra": "string", "detalhe": "string" } ],
+  "resumo_curto": "string (max 200 chars)",
+  "alertas": [ "string" ]
 }`,
         },
       ],
@@ -65,11 +72,29 @@ Retorne ESTRITAMENTE em JSON válido (sem markdown, sem texto extra):
   });
 
   const txt = r.content.filter(b => b.type === "text").map(b => b.text).join("");
+  return parseAnaliseJson(txt);
+}
+
+function parseAnaliseJson(txt) {
+  let limpo = txt.trim();
+  // Remove fences markdown (```json ... ``` ou ``` ... ```)
+  limpo = limpo.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  // Pega do primeiro { ao último }
+  const ini = limpo.indexOf("{");
+  const fim = limpo.lastIndexOf("}");
+  const candidato = ini >= 0 && fim > ini ? limpo.slice(ini, fim + 1) : limpo;
   try {
-    const m = txt.match(/\{[\s\S]*\}/);
-    return m ? JSON.parse(m[0]) : { tipo: "outro", resumo_curto: txt.slice(0, 200) };
-  } catch {
-    return { tipo: "outro", resumo_curto: txt.slice(0, 200), erro_parse: true };
+    return JSON.parse(candidato);
+  } catch (e) {
+    console.warn(`[vision] JSON parse falhou: ${e.message}. Texto: ${txt.slice(0, 300)}`);
+    return {
+      tipo: "outro",
+      campos: {},
+      validacoes: [],
+      resumo_curto: "documento recebido (análise indisponível)",
+      alertas: ["Falha ao interpretar análise automática — verificar manualmente."],
+      erro_parse: true,
+    };
   }
 }
 
