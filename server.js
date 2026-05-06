@@ -9,6 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { carregarConhecimento, tamanhoEstimado } from "./conhecimento.js";
 import { TOOL_DEFS, executarTool, leadEstaPausado, zapiSendText } from "./tools.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
+import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -79,6 +80,58 @@ async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
   return respostaFinal;
 }
 
+function inferirServicoDaConversa(telefone) {
+  const conv = historico[telefone] || [];
+  const txt = conv.map(m => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map(c => c.text || c.input?.servico || "").join(" ") : "").join(" ").toLowerCase();
+  if (/licenc|ambient|car|multa|veget|corte|transplante/.test(txt)) return "ambiental";
+  if (/topograf|loteamento|geocidade|levantamento/.test(txt)) return "topografia";
+  if (/geo|georref|incra|sigef|hectar/.test(txt)) return "georreferenciamento";
+  return "georreferenciamento";
+}
+
+function inferirNomeDaConversa(telefone, fallback) {
+  const conv = historico[telefone] || [];
+  for (const m of conv) {
+    if (Array.isArray(m.content)) {
+      for (const c of m.content) {
+        if (c.type === "tool_use" && c.input?.nome) return c.input.nome;
+        if (c.type === "tool_use" && c.input?.nome_lead) return c.input.nome_lead;
+      }
+    }
+  }
+  return fallback || "";
+}
+
+async function processarMidiaRecebida(telefone, nomeLead, midia) {
+  const servico = inferirServicoDaConversa(telefone);
+  const nome = inferirNomeDaConversa(telefone, nomeLead);
+  console.log(`[${telefone}] mídia ${midia.tipo} (${midia.fileName}) — analisando…`);
+
+  try {
+    const { analise, dropboxPath, pastaProcesso } = await processarMidia({
+      midia,
+      lead: { telefone, nome },
+      servico,
+    });
+
+    const respostaCliente = `Recebi seu ${analise.tipo} 📋 ${analise.resumo_curto || ""}`.trim();
+    await zapiSendText(telefone, respostaCliente);
+
+    const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+    const validacoesTxt = (analise.validacoes || []).map(v => `${v.ok ? "✅" : "⚠️"} ${v.regra}: ${v.detalhe}`).join("\n");
+    const alertasTxt = (analise.alertas || []).join("\n");
+    const aviso = `📎 *Documento recebido — Tales*\n\n*Cliente:* ${nome || "(sem nome)"} (${telefone})\n*Tipo:* ${analise.tipo}\n*Resumo:* ${analise.resumo_curto || "—"}\n\n*Pasta:* ${pastaProcesso}\n*Arquivo:* ${dropboxPath}${validacoesTxt ? `\n\n*Validações:*\n${validacoesTxt}` : ""}${alertasTxt ? `\n\n⚠️ *Alertas:*\n${alertasTxt}` : ""}`;
+    await zapiSendText(telefoneFelipe, aviso);
+
+    console.log(`[${telefone}] arquivado em ${dropboxPath}`);
+  } catch (e) {
+    console.error(`[${telefone}] erro processando mídia:`, e.message);
+    await zapiSendText(telefone, "Recebi seu arquivo, vou repassar pra equipe analisar 👍");
+    const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+    await zapiSendText(telefoneFelipe, `⚠️ Falha ao processar mídia de ${nomeLead || telefone}: ${e.message}`);
+  }
+}
+
 app.post("/webhook", async (req, res) => {
   res.status(200).send("ok");
   try {
@@ -88,13 +141,21 @@ app.post("/webhook", async (req, res) => {
 
     const telefone = body.phone;
     const nomeLead = body.senderName || body.chatName || "";
-    const mensagem = body.text?.message || body.message || body.body || "";
-    if (!telefone || !mensagem) return;
+    if (!telefone) return;
 
     if (leadEstaPausado(telefone)) {
       console.log(`[${telefone}] pausado (transferido) — ignorando`);
       return;
     }
+
+    const midia = extrairMidiaDoWebhook(body);
+    if (midia) {
+      await processarMidiaRecebida(telefone, nomeLead, midia);
+      return;
+    }
+
+    const mensagem = body.text?.message || body.message || body.body || "";
+    if (!mensagem) return;
 
     console.log(`[${telefone}] ${nomeLead}: ${mensagem}`);
     const resposta = await rodarAgente(telefone, nomeLead, mensagem);
