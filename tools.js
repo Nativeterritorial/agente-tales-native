@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const FAIXAS_GEO = [
   { min: 0,  max: 5,   precoMin: 3500, precoMax: 4000 },
@@ -31,8 +33,8 @@ export function consultar_preco_georreferenciamento({ area_hectares }) {
   };
 }
 
-const LEADS_FILE = path.join(__dirname, "leads.jsonl");
-const PAUSA_FILE = path.join(__dirname, "pausas.json");
+const LEADS_FILE = path.join(DATA_DIR, "leads.jsonl");
+const PAUSA_FILE = path.join(DATA_DIR, "pausas.json");
 
 const TELEFONE_FELIPE = process.env.TELEFONE_FELIPE || "5554992215356";
 const TELEFONE_PRECILA = process.env.TELEFONE_PRECILA || "5554991495120";

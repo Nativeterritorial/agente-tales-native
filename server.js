@@ -11,25 +11,29 @@ import { TOOL_DEFS, executarTool, leadEstaPausado, pausarLead, despausarLead, za
 import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
 import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
+import { agendarLembretes, rodarLembretes } from "./lembretes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
+
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-const HISTORICO_FILE = path.join(__dirname, "conversas.json");
+const HISTORICO_FILE = path.join(DATA_DIR, "conversas.json");
 const historico = fs.existsSync(HISTORICO_FILE)
   ? JSON.parse(fs.readFileSync(HISTORICO_FILE, "utf8"))
   : {};
 
-const ESTADO_FILE = path.join(__dirname, "estado.json");
+const ESTADO_FILE = path.join(DATA_DIR, "estado.json");
 const estado = fs.existsSync(ESTADO_FILE)
   ? JSON.parse(fs.readFileSync(ESTADO_FILE, "utf8"))
   : {};
 
-const MIDIA_DIR = path.join(__dirname, "midia-pendente");
+const MIDIA_DIR = path.join(DATA_DIR, "midia-pendente");
 if (!fs.existsSync(MIDIA_DIR)) fs.mkdirSync(MIDIA_DIR, { recursive: true });
 
 function salvarHistorico() {
@@ -48,11 +52,36 @@ function getEstado(telefone) {
 const t = tamanhoEstimado();
 console.log(`📚 Base INCRA carregada: ~${t.tokensEstimados} tokens`);
 
-function systemBlocks() {
-  return [
+function systemBlocks(contextoCliente = "") {
+  const blocks = [
     { type: "text", text: carregarConhecimento(), cache_control: { type: "ephemeral" } },
     { type: "text", text: SYSTEM_PROMPT },
   ];
+  if (contextoCliente) {
+    blocks.push({ type: "text", text: `# CONTEXTO DESTE LEAD (memória de conversas anteriores)\n${contextoCliente}` });
+  }
+  return blocks;
+}
+
+function montarContextoCliente(telefone) {
+  const st = estado[telefone] || {};
+  const conv = historico[telefone] || [];
+  if (!st.proprietario && conv.length === 0) return "";
+
+  const partes = [];
+  if (st.proprietario) partes.push(`- Proprietário/cliente já identificado: ${st.proprietario}`);
+  if (st.servico) partes.push(`- Serviço em discussão: ${st.servico}`);
+  if (st.ultimaInteracao) {
+    const dias = Math.floor((Date.now() - new Date(st.ultimaInteracao).getTime()) / 86400000);
+    if (dias > 0) partes.push(`- Última interação: ${dias} dia(s) atrás`);
+  }
+  if (st.docsRecebidos && st.docsRecebidos.length) {
+    partes.push(`- Documentos já recebidos: ${st.docsRecebidos.map(d => d.tipo).join(", ")}`);
+  }
+  if (st.pastaProcesso) partes.push(`- Pasta no Dropbox: ${st.pastaProcesso}`);
+
+  if (partes.length === 0) return "";
+  return partes.join("\n") + "\n\nUse essa memória pra retomar a conversa naturalmente. Se faz mais de 7 dias que falaram, dê uma boas-vindas calorosa (\"Oi de novo, " + (st.proprietario?.split(" ")[0] || "tudo bem") + "!\"). Não pergunte coisas que já sabe.";
 }
 
 async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
@@ -63,11 +92,17 @@ async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
   let respostaFinal = "";
   let iter = 0;
 
+  const contexto = montarContextoCliente(telefone);
+  // marca interação atual
+  const st = getEstado(telefone);
+  st.ultimaInteracao = new Date().toISOString();
+  salvarEstado();
+
   while (iter++ < 6) {
     const r = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1500,
-      system: systemBlocks(),
+      system: systemBlocks(contexto),
       tools: TOOL_DEFS,
       messages: conv,
     });
@@ -209,8 +244,17 @@ async function arquivarComBufferLocal(telefone, nomeLead, midia, proprietario, s
   const { uploadArquivo, garantirPastasProcesso, rootPorServico, slugCliente } = await import("./dropbox.js");
   console.log(`[${telefone}] processando ${midia.fileName} pra proprietário "${proprietario}"`);
   try {
-    const contexto = `Lead: ${nomeLead || ""}, telefone ${telefone}. Proprietário: ${proprietario}. Serviço: ${servico}.`;
+    const st = getEstado(telefone);
+    const docsAnteriores = st.docsRecebidos || [];
+    const ctxDocs = docsAnteriores.length ? `Documentos já recebidos deste cliente: ${JSON.stringify(docsAnteriores.map(d => ({ tipo: d.tipo, campos: d.campos })))}.` : "";
+    const contexto = `Lead: ${nomeLead || ""}, telefone ${telefone}. Proprietário: ${proprietario}. Serviço: ${servico}. ${ctxDocs}`;
     const analise = await analisarComVision(midia.bufferLocal, midia.mimeType, contexto);
+
+    // Validação cruzada
+    const cruzamentos = cruzarDocs(analise, docsAnteriores);
+    if (cruzamentos.length) {
+      analise.alertas = [...(analise.alertas || []), ...cruzamentos];
+    }
 
     const slug = slugCliente(proprietario);
     const root = rootPorServico(servico);
@@ -233,11 +277,45 @@ async function arquivarComBufferLocal(telefone, nomeLead, midia, proprietario, s
     const alertasTxt = (analise.alertas || []).join("\n");
     const aviso = `📎 *Documento recebido — Tales*\n\n*Proprietário:* ${proprietario}\n*Lead:* ${nomeLead || "—"} (${telefone})\n*Tipo:* ${analise.tipo}\n*Resumo:* ${analise.resumo_curto || "—"}\n\n*Pasta:* ${pastas.base}\n*Arquivo:* ${upload.path_display || dropboxPath}${validacoesTxt ? `\n\n*Validações:*\n${validacoesTxt}` : ""}${alertasTxt ? `\n\n⚠️ *Alertas:*\n${alertasTxt}` : ""}`;
     await zapiSendText(telefoneFelipe, aviso);
+
+    // Salva o doc no estado pra cruzamento futuro
+    if (!st.docsRecebidos) st.docsRecebidos = [];
+    st.docsRecebidos.push({ tipo: analise.tipo, campos: analise.campos || {}, ts: new Date().toISOString(), arquivo: midia.fileName });
+    st.proprietario = proprietario;
+    st.servico = servico;
+    st.pastaProcesso = pastas.base;
+    salvarEstado();
   } catch (e) {
     console.error(`[${telefone}] erro arquivando: ${e.message}`);
     const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
     await zapiSendText(telefoneFelipe, `⚠️ Falha ao arquivar mídia de ${nomeLead || telefone}: ${e.message}`);
   }
+}
+
+function cruzarDocs(novo, anteriores) {
+  const alertas = [];
+  if (!novo.campos) return alertas;
+  const novoNirf = novo.campos.NIRF || novo.campos.nirf || novo.campos.codigo_imovel || novo.campos.codigo;
+  const novoArea = parseFloat(String(novo.campos.area || novo.campos.area_total || novo.campos.area_registrada || "").replace(",", ".")) || null;
+  const novoProp = (novo.campos.proprietario || novo.campos.proprietarios || "").toString().toLowerCase();
+
+  for (const a of anteriores) {
+    const c = a.campos || {};
+    const aNirf = c.NIRF || c.nirf || c.codigo_imovel || c.codigo;
+    const aArea = parseFloat(String(c.area || c.area_total || c.area_registrada || "").replace(",", ".")) || null;
+    const aProp = (c.proprietario || c.proprietarios || "").toString().toLowerCase();
+
+    if (novoNirf && aNirf && novoNirf !== aNirf) {
+      alertas.push(`⚠️ NIRF diferente: ${novo.tipo}=${novoNirf} vs ${a.tipo}=${aNirf}`);
+    }
+    if (novoArea && aArea && Math.abs(novoArea - aArea) / Math.max(novoArea, aArea) > 0.05) {
+      alertas.push(`⚠️ Área diverge >5%: ${novo.tipo}=${novoArea}ha vs ${a.tipo}=${aArea}ha`);
+    }
+    if (novoProp && aProp && !novoProp.includes(aProp.slice(0, 8)) && !aProp.includes(novoProp.slice(0, 8))) {
+      alertas.push(`⚠️ Proprietário diverge: ${novo.tipo}="${novo.campos.proprietario}" vs ${a.tipo}="${c.proprietario}"`);
+    }
+  }
+  return alertas;
 }
 
 function pareceNomeProprio(texto) {
@@ -344,10 +422,22 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true, conversas: Object.keys(historico).length }));
+app.get("/health", (_req, res) => res.json({ ok: true, conversas: Object.keys(historico).length, dataDir: DATA_DIR }));
+
+// Trigger manual dos lembretes (útil pra testar)
+app.post("/lembretes/run", async (_req, res) => {
+  try {
+    await rodarLembretes();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 Tales rodando em http://localhost:${PORT}`);
   console.log(`   Webhook Z-API → POST http://SEU_HOST:${PORT}/webhook`);
+  console.log(`   DATA_DIR: ${DATA_DIR}`);
+  agendarLembretes();
 });
