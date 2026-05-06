@@ -100,6 +100,31 @@ export function leadEstaPausado(telefone) {
   return true;
 }
 
+export async function zapiTranscreverAudio({ messageId, audioUrl }) {
+  const base = process.env.ZAPI_BASE || `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}`;
+  const clientToken = process.env.ZAPI_CLIENT_TOKEN;
+  const headers = { "Content-Type": "application/json" };
+  if (clientToken) headers["Client-Token"] = clientToken;
+
+  const tentativas = [];
+  if (messageId) tentativas.push({ url: `${base}/transcribe-audio`, body: { messageId } });
+  if (audioUrl) tentativas.push({ url: `${base}/transcribe-audio`, body: { audioUrl } });
+
+  for (const t of tentativas) {
+    try {
+      const r = await fetch(t.url, { method: "POST", headers, body: JSON.stringify(t.body) });
+      const txt = await r.text();
+      if (!r.ok) { console.warn(`[zapi-transcribe] ${r.status}: ${txt}`); continue; }
+      const j = JSON.parse(txt);
+      if (j.transcription) return j.transcription;
+      if (j.text) return j.text;
+    } catch (e) {
+      console.warn(`[zapi-transcribe] erro: ${e.message}`);
+    }
+  }
+  return null;
+}
+
 export async function zapiSendText(phone, message) {
   const base = process.env.ZAPI_BASE || `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}`;
   const clientToken = process.env.ZAPI_CLIENT_TOKEN;
