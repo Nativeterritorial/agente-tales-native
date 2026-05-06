@@ -23,8 +23,25 @@ const historico = fs.existsSync(HISTORICO_FILE)
   ? JSON.parse(fs.readFileSync(HISTORICO_FILE, "utf8"))
   : {};
 
+const ESTADO_FILE = path.join(__dirname, "estado.json");
+const estado = fs.existsSync(ESTADO_FILE)
+  ? JSON.parse(fs.readFileSync(ESTADO_FILE, "utf8"))
+  : {};
+
+const MIDIA_DIR = path.join(__dirname, "midia-pendente");
+if (!fs.existsSync(MIDIA_DIR)) fs.mkdirSync(MIDIA_DIR, { recursive: true });
+
 function salvarHistorico() {
   fs.writeFileSync(HISTORICO_FILE, JSON.stringify(historico, null, 2));
+}
+
+function salvarEstado() {
+  fs.writeFileSync(ESTADO_FILE, JSON.stringify(estado, null, 2));
+}
+
+function getEstado(telefone) {
+  if (!estado[telefone]) estado[telefone] = {};
+  return estado[telefone];
 }
 
 const t = tamanhoEstimado();
@@ -102,15 +119,14 @@ function inferirNomeDaConversa(telefone, fallback) {
   return fallback || "";
 }
 
-async function processarMidiaRecebida(telefone, nomeLead, midia) {
-  const servico = inferirServicoDaConversa(telefone);
-  const nome = inferirNomeDaConversa(telefone, nomeLead);
-  console.log(`[${telefone}] mídia ${midia.tipo} (${midia.fileName}) — analisando…`);
+import { baixarMidia } from "./media.js";
 
+async function arquivarMidiaUnica(telefone, nomeLead, midia, proprietario, servico) {
+  console.log(`[${telefone}] mídia ${midia.tipo} (${midia.fileName}) — analisando…`);
   try {
     const { analise, dropboxPath, pastaProcesso } = await processarMidia({
       midia,
-      lead: { telefone, nome },
+      lead: { telefone, nome: proprietario },
       servico,
     });
 
@@ -120,7 +136,7 @@ async function processarMidiaRecebida(telefone, nomeLead, midia) {
     const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
     const validacoesTxt = (analise.validacoes || []).map(v => `${v.ok ? "✅" : "⚠️"} ${v.regra}: ${v.detalhe}`).join("\n");
     const alertasTxt = (analise.alertas || []).join("\n");
-    const aviso = `📎 *Documento recebido — Tales*\n\n*Cliente:* ${nome || "(sem nome)"} (${telefone})\n*Tipo:* ${analise.tipo}\n*Resumo:* ${analise.resumo_curto || "—"}\n\n*Pasta:* ${pastaProcesso}\n*Arquivo:* ${dropboxPath}${validacoesTxt ? `\n\n*Validações:*\n${validacoesTxt}` : ""}${alertasTxt ? `\n\n⚠️ *Alertas:*\n${alertasTxt}` : ""}`;
+    const aviso = `📎 *Documento recebido — Tales*\n\n*Proprietário:* ${proprietario}\n*Lead:* ${nomeLead || "—"} (${telefone})\n*Tipo:* ${analise.tipo}\n*Resumo:* ${analise.resumo_curto || "—"}\n\n*Pasta:* ${pastaProcesso}\n*Arquivo:* ${dropboxPath}${validacoesTxt ? `\n\n*Validações:*\n${validacoesTxt}` : ""}${alertasTxt ? `\n\n⚠️ *Alertas:*\n${alertasTxt}` : ""}`;
     await zapiSendText(telefoneFelipe, aviso);
 
     console.log(`[${telefone}] arquivado em ${dropboxPath}`);
@@ -130,6 +146,101 @@ async function processarMidiaRecebida(telefone, nomeLead, midia) {
     const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
     await zapiSendText(telefoneFelipe, `⚠️ Falha ao processar mídia de ${nomeLead || telefone}: ${e.message}`);
   }
+}
+
+async function processarMidiaRecebida(telefone, nomeLead, midia) {
+  const st = getEstado(telefone);
+  const servico = inferirServicoDaConversa(telefone);
+
+  if (st.proprietario) {
+    await arquivarMidiaUnica(telefone, nomeLead, midia, st.proprietario, servico);
+    return;
+  }
+
+  // Sem proprietário ainda — baixa, salva em disco e pergunta
+  const buffer = await baixarMidia(midia.url);
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const arquivoLocal = path.join(MIDIA_DIR, `${telefone}_${id}_${midia.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
+  fs.writeFileSync(arquivoLocal, buffer);
+
+  if (!st.midiasPendentes) st.midiasPendentes = [];
+  st.midiasPendentes.push({ arquivoLocal, fileName: midia.fileName, mimeType: midia.mimeType, tipo: midia.tipo });
+  st.aguardandoProprietario = true;
+  salvarEstado();
+
+  if (st.midiasPendentes.length === 1) {
+    await zapiSendText(telefone, "Recebi! 📋 Antes de arquivar, qual o *nome do proprietário* do imóvel?");
+  }
+  console.log(`[${telefone}] mídia em espera (proprietário ainda não definido). Pendentes: ${st.midiasPendentes.length}`);
+}
+
+async function processarMidiasPendentes(telefone, nomeLead, proprietario) {
+  const st = getEstado(telefone);
+  const servico = inferirServicoDaConversa(telefone);
+  const pendentes = st.midiasPendentes || [];
+  st.midiasPendentes = [];
+  st.aguardandoProprietario = false;
+  salvarEstado();
+
+  for (const m of pendentes) {
+    try {
+      const buffer = fs.readFileSync(m.arquivoLocal);
+      const midiaSimulada = {
+        tipo: m.tipo,
+        fileName: m.fileName,
+        mimeType: m.mimeType,
+        url: null,
+        bufferLocal: buffer,
+      };
+      // arquivarMidiaUnica chama processarMidia que baixa via URL — vamos contornar
+      await arquivarComBufferLocal(telefone, nomeLead, midiaSimulada, proprietario, servico);
+      try { fs.unlinkSync(m.arquivoLocal); } catch {}
+    } catch (e) {
+      console.error(`[${telefone}] erro reprocessando ${m.fileName}: ${e.message}`);
+    }
+  }
+}
+
+async function arquivarComBufferLocal(telefone, nomeLead, midia, proprietario, servico) {
+  const { analisarComVision } = await import("./media.js");
+  const { uploadArquivo, garantirPastasProcesso, rootPorServico, slugCliente } = await import("./dropbox.js");
+  console.log(`[${telefone}] processando ${midia.fileName} pra proprietário "${proprietario}"`);
+  try {
+    const contexto = `Lead: ${nomeLead || ""}, telefone ${telefone}. Proprietário: ${proprietario}. Serviço: ${servico}.`;
+    const analise = await analisarComVision(midia.bufferLocal, midia.mimeType, contexto);
+
+    const slug = slugCliente(proprietario);
+    const root = rootPorServico(servico);
+    const pastas = await garantirPastasProcesso(root, slug);
+    const subFolderMap = { "foto-vertice": pastas.levantamento, "foto-levantamento": pastas.levantamento, "planta": pastas.escritorio, "memorial": pastas.escritorio, "dxf": pastas.escritorio };
+    const pastaDestino = subFolderMap[(analise.tipo || "").toLowerCase()] || pastas.docsCliente;
+
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const nomeFinal = `${ts}_${analise.tipo}_${midia.fileName}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const dropboxPath = `${pastaDestino}/${nomeFinal}`;
+    const upload = await uploadArquivo(dropboxPath, midia.bufferLocal);
+
+    const respostaCliente = `Recebi seu ${analise.tipo} 📋 ${analise.resumo_curto || ""}`.trim();
+    await zapiSendText(telefone, respostaCliente);
+
+    const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+    const validacoesTxt = (analise.validacoes || []).map(v => `${v.ok ? "✅" : "⚠️"} ${v.regra}: ${v.detalhe}`).join("\n");
+    const alertasTxt = (analise.alertas || []).join("\n");
+    const aviso = `📎 *Documento recebido — Tales*\n\n*Proprietário:* ${proprietario}\n*Lead:* ${nomeLead || "—"} (${telefone})\n*Tipo:* ${analise.tipo}\n*Resumo:* ${analise.resumo_curto || "—"}\n\n*Pasta:* ${pastas.base}\n*Arquivo:* ${upload.path_display || dropboxPath}${validacoesTxt ? `\n\n*Validações:*\n${validacoesTxt}` : ""}${alertasTxt ? `\n\n⚠️ *Alertas:*\n${alertasTxt}` : ""}`;
+    await zapiSendText(telefoneFelipe, aviso);
+  } catch (e) {
+    console.error(`[${telefone}] erro arquivando: ${e.message}`);
+    const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+    await zapiSendText(telefoneFelipe, `⚠️ Falha ao arquivar mídia de ${nomeLead || telefone}: ${e.message}`);
+  }
+}
+
+function pareceNomeProprio(texto) {
+  const t = (texto || "").trim();
+  if (!t || t.length < 3 || t.length > 80) return false;
+  if (/[?!]/.test(t)) return false;
+  // Aceita "João Silva", "Tiago Zago", "Maria da Silva"
+  return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{2,}$/.test(t);
 }
 
 app.post("/webhook", async (req, res) => {
@@ -158,6 +269,17 @@ app.post("/webhook", async (req, res) => {
     if (!mensagem) return;
 
     console.log(`[${telefone}] ${nomeLead}: ${mensagem}`);
+
+    const st = getEstado(telefone);
+    if (st.aguardandoProprietario && pareceNomeProprio(mensagem)) {
+      st.proprietario = mensagem.trim();
+      salvarEstado();
+      console.log(`[${telefone}] proprietário definido: ${st.proprietario}`);
+      await zapiSendText(telefone, `Beleza, ${st.proprietario.split(" ")[0]}! Vou processar e arquivar agora 👍`);
+      await processarMidiasPendentes(telefone, nomeLead, st.proprietario);
+      return;
+    }
+
     const resposta = await rodarAgente(telefone, nomeLead, mensagem);
     if (resposta) {
       await zapiSendText(telefone, resposta);

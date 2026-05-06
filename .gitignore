@@ -3,6 +3,8 @@ node_modules/
 conversas.json
 leads.jsonl
 pausas.json
+estado.json
+midia-pendente/
 *.log
 cloudflared.exe
 *.exe
