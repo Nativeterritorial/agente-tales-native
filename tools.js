@@ -71,6 +71,22 @@ export function salvar_lead(dados) {
   return { ok: true };
 }
 
+export function pausarLead(telefone, horas = 24 * 7) {
+  if (!telefone) return;
+  const pausas = fs.existsSync(PAUSA_FILE) ? JSON.parse(fs.readFileSync(PAUSA_FILE, "utf8")) : {};
+  pausas[telefone] = Date.now() + horas * 60 * 60 * 1000;
+  fs.writeFileSync(PAUSA_FILE, JSON.stringify(pausas, null, 2));
+}
+
+export function despausarLead(telefone) {
+  if (!fs.existsSync(PAUSA_FILE)) return;
+  const pausas = JSON.parse(fs.readFileSync(PAUSA_FILE, "utf8"));
+  if (pausas[telefone]) {
+    delete pausas[telefone];
+    fs.writeFileSync(PAUSA_FILE, JSON.stringify(pausas, null, 2));
+  }
+}
+
 export function leadEstaPausado(telefone) {
   if (!fs.existsSync(PAUSA_FILE)) return false;
   const pausas = JSON.parse(fs.readFileSync(PAUSA_FILE, "utf8"));

@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { carregarConhecimento, tamanhoEstimado } from "./conhecimento.js";
-import { TOOL_DEFS, executarTool, leadEstaPausado, zapiSendText } from "./tools.js";
+import { TOOL_DEFS, executarTool, leadEstaPausado, pausarLead, despausarLead, zapiSendText } from "./tools.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
 import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
@@ -252,8 +252,24 @@ app.post("/webhook", async (req, res) => {
   res.status(200).send("ok");
   try {
     const body = req.body || {};
-    if (body.fromMe) return;
     if (body.isGroup) return;
+
+    // Mensagem ENVIADA pelo WhatsApp da Native (Felipe/Gustavo manual) → silencia Tales naquela conversa
+    if (body.fromMe) {
+      const phone = body.phone;
+      if (!phone) return;
+      const texto = body.text?.message || body.message || body.body || "";
+      // Comando especial pra reativar Tales
+      if (/\b(\/tales\s+on|reativar tales|tales volta)\b/i.test(texto)) {
+        despausarLead(phone);
+        console.log(`[${phone}] Tales reativado manualmente`);
+        return;
+      }
+      // Senão, pausa Tales 7 dias (renova a cada mensagem manual)
+      pausarLead(phone, 24 * 7);
+      console.log(`[${phone}] mensagem manual da Native — Tales pausado 7 dias`);
+      return;
+    }
 
     const telefone = body.phone;
     const nomeLead = body.senderName || body.chatName || "";
