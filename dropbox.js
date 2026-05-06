@@ -45,8 +45,15 @@ async function dbxRpc(endpoint, body) {
 export async function criarPastaSeNaoExiste(path) {
   try {
     await dbxRpc("files/create_folder_v2", { path, autorename: false });
+    console.log(`[dropbox] criou pasta: ${path}`);
   } catch (e) {
-    if (!String(e.message).includes("path/conflict")) throw e;
+    const msg = String(e.message);
+    if (msg.includes("path/conflict") || msg.includes("conflict/folder") || msg.includes('"folder"')) {
+      // já existe — ok
+      return;
+    }
+    console.error(`[dropbox] erro criando ${path}: ${msg}`);
+    throw e;
   }
 }
 
@@ -78,10 +85,10 @@ export function slugCliente(nome) {
 
 export function rootPorServico(servico) {
   const s = (servico || "").toLowerCase();
-  if (s.includes("geo")) return "/Native/Topografia/Georreferenciamento";
-  if (s.includes("topo") || s.includes("levantamento") || s.includes("loteamento")) return "/Native/Levantamentos";
-  if (s.includes("amb") || s.includes("licenc") || s.includes("car") || s.includes("multa") || s.includes("vege")) return "/Native/Meio Ambiente";
-  return "/Native/Tales-Inbox";
+  if (s.includes("geo")) return "/NATIVE TOPOGRAFIA/GEORREFERENCIAMENTO";
+  if (s.includes("topo") || s.includes("levantamento") || s.includes("loteamento")) return "/NATIVE TOPOGRAFIA/LEVANTAMENTOS";
+  if (s.includes("amb") || s.includes("licenc") || s.includes("car") || s.includes("multa") || s.includes("vege")) return "/NATIVE MEIO AMBIENTE";
+  return "/NATIVE TOPOGRAFIA/Tales-Inbox";
 }
 
 export function pastasProcesso(rootServico, slug, ano = new Date().getFullYear()) {
