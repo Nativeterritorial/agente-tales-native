@@ -275,6 +275,18 @@ app.post("/webhook", async (req, res) => {
     const nomeLead = body.senderName || body.chatName || "";
     if (!telefone) return;
 
+    // Bloqueio: se a mensagem vier dos próprios números da equipe, Tales ignora
+    const equipe = [
+      process.env.TELEFONE_FELIPE,
+      process.env.TELEFONE_PRECILA,
+      process.env.TELEFONE_GUSTAVO,
+    ].filter(Boolean).map(t => String(t).replace(/\D/g, ""));
+    const telNorm = String(telefone).replace(/\D/g, "");
+    if (equipe.includes(telNorm)) {
+      console.log(`[${telefone}] mensagem da equipe — Tales ignora`);
+      return;
+    }
+
     const parceiro = ehParceiro(telefone);
     if (parceiro) {
       console.log(`[${telefone}] parceiro: ${parceiro.nome}`);
