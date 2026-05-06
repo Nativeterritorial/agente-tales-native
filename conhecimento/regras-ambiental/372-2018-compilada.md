@@ -221,7 +221,7 @@ Porto Alegre, 22 de fevereiro de 2018.
 
 ## ANEXO I — CODRAM (resumido)
 
-A tabela CODRAM completa lista as atividades licenciáveis com porte e potencial poluidor. Por ser extensa, não está incluída aqui — em caso de dúvida sobre código CODRAM específico de uma atividade, transfira pra Pricila.
+A tabela CODRAM completa lista as atividades licenciáveis com porte e potencial poluidor. Por ser extensa, não está incluída aqui — em caso de dúvida sobre código CODRAM específico de uma atividade, transfira pra Precila.
 
                                                          ANEXO II
                                          Glossário de termos do ANEXO I

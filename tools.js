@@ -35,12 +35,12 @@ const LEADS_FILE = path.join(__dirname, "leads.jsonl");
 const PAUSA_FILE = path.join(__dirname, "pausas.json");
 
 const TELEFONE_FELIPE = process.env.TELEFONE_FELIPE || "5554992215356";
-const TELEFONE_PRICILA = process.env.TELEFONE_PRICILA || "5554991495120";
+const TELEFONE_PRECILA = process.env.TELEFONE_PRECILA || "5554991495120";
 
 export async function transferir_humano({ nome_lead, telefone_lead, servico, resumo, responsavel }) {
   const r = (responsavel || "").toLowerCase();
-  const destino = r === "pricila" ? TELEFONE_PRICILA : TELEFONE_FELIPE;
-  const nomeResp = r === "pricila" ? "Pricila" : "Felipe";
+  const destino = r === "precila" ? TELEFONE_PRECILA : TELEFONE_FELIPE;
+  const nomeResp = r === "precila" ? "Precila" : "Felipe";
   const texto = `🔔 *Lead transferido — Tales*\n\n*Nome:* ${nome_lead || "—"}\n*Telefone:* ${telefone_lead || "—"}\n*Serviço:* ${servico || "—"}\n\n*Resumo:* ${resumo}`;
 
   await zapiSendText(destino, texto);
@@ -58,8 +58,8 @@ export async function transferir_humano({ nome_lead, telefone_lead, servico, res
     fs.writeFileSync(PAUSA_FILE, JSON.stringify(pausas, null, 2));
   }
 
-  const artigo = r === "pricila" ? "pra Pricila (nossa bióloga)" : "pro Felipe (responsável técnico)";
-  return { ok: true, mensagem_sugerida: `Beleza! Já passei ${artigo} com o resumo. Em pouco tempo ${r === "pricila" ? "ela" : "ele"} te chama por aqui mesmo 👍` };
+  const artigo = r === "precila" ? "pra Precila (nossa bióloga)" : "pro Felipe (responsável técnico)";
+  return { ok: true, mensagem_sugerida: `Beleza! Já passei ${artigo} com o resumo. Em pouco tempo ${r === "precila" ? "ela" : "ele"} te chama por aqui mesmo 👍` };
 }
 
 export function salvar_lead(dados) {
@@ -113,14 +113,14 @@ export const TOOL_DEFS = [
   },
   {
     name: "transferir_humano",
-    description: "Transfere o lead pro responsável correto. Use 'felipe' pra georreferenciamento/topografia/loteamento/GeoCidade. Use 'pricila' pra licenciamento ambiental, corte/supressão de vegetação, transplante vegetal, CAR, defesa de multa ambiental ou qualquer assunto ambiental que exija análise específica.",
+    description: "Transfere o lead pro responsável correto. Use 'felipe' pra georreferenciamento/topografia/loteamento/GeoCidade. Use 'precila' pra licenciamento ambiental, corte/supressão de vegetação, transplante vegetal, CAR, defesa de multa ambiental ou qualquer assunto ambiental que exija análise específica.",
     input_schema: {
       type: "object",
       properties: {
         nome_lead: { type: "string" },
         telefone_lead: { type: "string" },
         servico: { type: "string", enum: ["georreferenciamento", "topografia", "licenciamento", "corte_vegetacao", "transplante_vegetal", "CAR", "defesa_multa", "outro"] },
-        responsavel: { type: "string", enum: ["felipe", "pricila"], description: "Felipe pra geo/topo. Pricila pra qualquer assunto ambiental." },
+        responsavel: { type: "string", enum: ["felipe", "precila"], description: "Felipe pra geo/topo. Precila pra qualquer assunto ambiental." },
         resumo: { type: "string", description: "Resumo curto: cidade, área, serviço, finalidade, urgência" },
       },
       required: ["resumo", "responsavel"],

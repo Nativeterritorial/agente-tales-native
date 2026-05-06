@@ -35,7 +35,7 @@ export function carregarConhecimento() {
   const amb = carregarDiretorio(
     DIR_AMB,
     "BASE DE CONHECIMENTO — Licenciamento Ambiental no RS (CONSEMA 372/2018 e atualizações)",
-    "Você também conhece a regulamentação ambiental do Rio Grande do Sul, especialmente a Resolução CONSEMA 372/2018 (compilada) e suas alterações posteriores (511/2024, 516/2024, 518/2024, 520/2024, 524/2025, 527/2025, 534/2025, 543/2026, 544/2026, 549/2026). Use essas resoluções para identificar quando uma atividade precisa de licenciamento ambiental, qual tipo de licença (LP/LI/LO/LU/LAC), competência (estadual ou municipal), e CODRAM aplicável. Para corte/supressão de vegetação, transplante vegetal e defesa de multas, oriente o lead com base nas regras gerais e sempre indique transferência pra Pricila quando o caso exigir análise específica."
+    "Você também conhece a regulamentação ambiental do Rio Grande do Sul, especialmente a Resolução CONSEMA 372/2018 (compilada) e suas alterações posteriores (511/2024, 516/2024, 518/2024, 520/2024, 524/2025, 527/2025, 534/2025, 543/2026, 544/2026, 549/2026). Use essas resoluções para identificar quando uma atividade precisa de licenciamento ambiental, qual tipo de licença (LP/LI/LO/LU/LAC), competência (estadual ou municipal), e CODRAM aplicável. Para corte/supressão de vegetação, transplante vegetal e defesa de multas, oriente o lead com base nas regras gerais e sempre indique transferência pra Precila quando o caso exigir análise específica."
   );
   _cache = geo + "\n\n" + amb;
   return _cache;
