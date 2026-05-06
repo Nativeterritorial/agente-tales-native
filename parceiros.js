@@ -62,20 +62,16 @@ export async function processarMensagemParceiro({ telefone, parceiro, body, zapi
     const dropboxPath = `${pasta}/${nomeFinal}`;
     const upload = await uploadArquivo(dropboxPath, buffer);
 
-    const aviso = `📨 *Mensagem de parceiro — Tales*\n\n*De:* ${parceiro.nome}\n*Telefone:* ${telefone}\n*Tipo:* documento (${midia.tipo})\n*Arquivo:* ${midia.fileName}${texto ? `\n*Legenda:* ${texto}` : ""}\n\n*Salvo em:* ${upload.path_display || dropboxPath}`;
+    const aviso = `📨 *Mensagem de parceiro — Tales*\n\n*De:* ${parceiro.nome}\n*Telefone:* ${telefone}\n*Tipo:* documento (${midia.tipo})\n*Arquivo:* ${midia.fileName}${texto ? `\n*Legenda:* ${texto}` : ""}\n\n*Salvo em:* ${upload.path_display || dropboxPath}\n\n_Tales não responde automaticamente — responder pelo WhatsApp da Native._`;
     for (const d of destinos) await zapiSendText(d, aviso);
-
-    await zapiSendText(telefone, "Recebido, obrigado! Vou repassar pra equipe. 👍");
-    console.log(`[parceiro] ${parceiro.nome}: doc arquivado em ${dropboxPath}`);
+    console.log(`[parceiro] ${parceiro.nome}: doc arquivado em ${dropboxPath} (sem auto-resposta)`);
     return;
   }
 
   if (texto) {
-    const aviso = `📨 *Mensagem de parceiro — Tales*\n\n*De:* ${parceiro.nome}\n*Telefone:* ${telefone}\n\n*Mensagem:*\n${texto}`;
+    const aviso = `📨 *Mensagem de parceiro — Tales*\n\n*De:* ${parceiro.nome}\n*Telefone:* ${telefone}\n\n*Mensagem:*\n${texto}\n\n_Tales não responde automaticamente — responder pelo WhatsApp da Native._`;
     for (const d of destinos) await zapiSendText(d, aviso);
-
-    await zapiSendText(telefone, "Recebido, obrigado! Vou repassar pra equipe. 👍");
-    console.log(`[parceiro] ${parceiro.nome}: mensagem encaminhada`);
+    console.log(`[parceiro] ${parceiro.nome}: mensagem encaminhada (sem auto-resposta)`);
     return;
   }
 }
