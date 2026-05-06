@@ -10,6 +10,7 @@ import { carregarConhecimento, tamanhoEstimado } from "./conhecimento.js";
 import { TOOL_DEFS, executarTool, leadEstaPausado, zapiSendText } from "./tools.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
+import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -253,6 +254,13 @@ app.post("/webhook", async (req, res) => {
     const telefone = body.phone;
     const nomeLead = body.senderName || body.chatName || "";
     if (!telefone) return;
+
+    const parceiro = ehParceiro(telefone);
+    if (parceiro) {
+      console.log(`[${telefone}] parceiro: ${parceiro.nome}`);
+      await processarMensagemParceiro({ telefone, parceiro, body, zapiSendText });
+      return;
+    }
 
     if (leadEstaPausado(telefone)) {
       console.log(`[${telefone}] pausado (transferido) — ignorando`);
