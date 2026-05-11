@@ -28,11 +28,17 @@ export function ehParceiro(telefone) {
   const parceiros = carregarParceiros();
   const norm = normalizar(telefone);
   if (parceiros[norm]) return parceiros[norm];
-  // tenta variações: com/sem 55, com/sem 9 extra
   const sem55 = norm.startsWith("55") ? norm.slice(2) : norm;
   const com55 = norm.startsWith("55") ? norm : "55" + norm;
   if (parceiros[com55]) return parceiros[com55];
   if (parceiros[sem55]) return parceiros[sem55];
+  // Match flexível por sufixo (10 últimos dígitos) — cobre variações de formato Z-API
+  const sufixo = norm.slice(-10);
+  if (sufixo.length === 10) {
+    for (const chave of Object.keys(parceiros)) {
+      if (normalizar(chave).slice(-10) === sufixo) return parceiros[chave];
+    }
+  }
   return null;
 }
 

@@ -343,9 +343,9 @@ app.post("/webhook", async (req, res) => {
         console.log(`[${phone}] Tales reativado manualmente`);
         return;
       }
-      // Senão, pausa Tales 7 dias (renova a cada mensagem manual)
-      pausarLead(phone, 24);
-      console.log(`[${phone}] mensagem manual da Native — Tales pausado 24h`);
+      // Senão, pausa Tales 4h (renova a cada mensagem manual)
+      pausarLead(phone, 4);
+      console.log(`[${phone}] mensagem manual da Native — Tales pausado 4h`);
       return;
     }
 
