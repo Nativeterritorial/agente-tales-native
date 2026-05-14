@@ -360,9 +360,17 @@ app.post("/webhook", async (req, res) => {
       process.env.TELEFONE_GUSTAVO,
     ].filter(Boolean).map(t => String(t).replace(/\D/g, ""));
     const telNorm = String(telefone).replace(/\D/g, "");
+    // Canonicaliza padrão BR: remove DDI 55 e o "9" extra do celular → DDD+8 dígitos
+    const canonBr = (d) => {
+      d = String(d || "").replace(/\D/g, "");
+      if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
+      if (d.length === 11 && d[2] === "9") d = d.slice(0, 2) + d.slice(3);
+      return d;
+    };
+    const telCanon = canonBr(telNorm);
     const ehDaEquipe = equipe.some(e => {
-      const a = e.slice(-10), b = telNorm.slice(-10);
-      return a === b && a.length === 10;
+      const a = canonBr(e);
+      return a && a === telCanon;
     });
     console.log(`[${telefone}] check equipe — telNorm=${telNorm} equipe=[${equipe.join(",")}] match=${ehDaEquipe}`);
     if (ehDaEquipe) {

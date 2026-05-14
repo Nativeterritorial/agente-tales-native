@@ -32,11 +32,17 @@ export function ehParceiro(telefone) {
   const com55 = norm.startsWith("55") ? norm : "55" + norm;
   if (parceiros[com55]) return parceiros[com55];
   if (parceiros[sem55]) return parceiros[sem55];
-  // Match flexível por sufixo (10 últimos dígitos) — cobre variações de formato Z-API
-  const sufixo = norm.slice(-10);
-  if (sufixo.length === 10) {
+  // Match canônico BR: remove DDI 55 e "9" extra do celular → DDD+8 dígitos
+  const canonBr = (d) => {
+    d = String(d || "").replace(/\D/g, "");
+    if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
+    if (d.length === 11 && d[2] === "9") d = d.slice(0, 2) + d.slice(3);
+    return d;
+  };
+  const alvo = canonBr(norm);
+  if (alvo && alvo.length === 10) {
     for (const chave of Object.keys(parceiros)) {
-      if (normalizar(chave).slice(-10) === sufixo) return parceiros[chave];
+      if (canonBr(chave) === alvo) return parceiros[chave];
     }
   }
   return null;
