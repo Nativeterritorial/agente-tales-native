@@ -364,6 +364,7 @@ app.post("/webhook", async (req, res) => {
       const a = e.slice(-10), b = telNorm.slice(-10);
       return a === b && a.length === 10;
     });
+    console.log(`[${telefone}] check equipe — telNorm=${telNorm} equipe=[${equipe.join(",")}] match=${ehDaEquipe}`);
     if (ehDaEquipe) {
       console.log(`[${telefone}] mensagem da equipe — Tales ignora (qualquer tipo de mídia/texto)`);
       return;
