@@ -427,8 +427,13 @@ app.post("/webhook", async (req, res) => {
 
     const resposta = await rodarAgente(telefone, nomeLead, mensagem);
     if (resposta) {
-      await zapiSendText(telefone, resposta);
-      console.log(`[${telefone}] Tales: ${resposta}`);
+      // Sentinela: Tales decidiu não responder (mensagem ambígua / conversa humana)
+      if (/\[SILENCIO\]/i.test(resposta.trim())) {
+        console.log(`[${telefone}] Tales: [SILENCIO] — não respondeu`);
+      } else {
+        await zapiSendText(telefone, resposta);
+        console.log(`[${telefone}] Tales: ${resposta}`);
+      }
     }
   } catch (e) {
     console.error("Erro no webhook:", e);
