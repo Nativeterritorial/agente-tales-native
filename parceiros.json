@@ -8,5 +8,10 @@
     "nome": "Tabelionato de Veranópolis",
     "tipo": "tabelionato",
     "pasta": "Tabelionato Veranópolis"
+  },
+  "555432731118": {
+    "nome": "Registros Públicos de Nova Bassano",
+    "tipo": "registro_imoveis",
+    "pasta": "Registros Públicos Nova Bassano"
   }
 }
