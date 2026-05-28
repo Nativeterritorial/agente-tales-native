@@ -58,17 +58,26 @@ export async function criarPastaSeNaoExiste(path) {
 }
 
 export async function uploadArquivo(path, buffer) {
-  const token = await getAccessToken();
-  const r = await fetch("https://content.dropboxapi.com/2/files/upload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-      "Dropbox-API-Arg": JSON.stringify({ path, mode: "add", autorename: true, mute: false }),
-    },
-    body: buffer,
-  });
-  const txt = await r.text();
+  // Tenta upload; em caso de 401 (token expirado), invalida cache e tenta de novo
+  const attempt = async () => {
+    const token = await getAccessToken();
+    const r = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": JSON.stringify({ path, mode: "add", autorename: true, mute: false }),
+      },
+      body: buffer,
+    });
+    return { r, txt: await r.text() };
+  };
+  let { r, txt } = await attempt();
+  if (r.status === 401) {
+    console.warn(`[dropbox] 401 — invalidando token e tentando de novo`);
+    _expiresAt = 0; // força refresh no próximo getAccessToken
+    ({ r, txt } = await attempt());
+  }
   if (!r.ok) throw new Error(`Dropbox upload ${r.status}: ${txt}`);
   return JSON.parse(txt);
 }

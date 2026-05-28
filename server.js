@@ -320,10 +320,27 @@ function cruzarDocs(novo, anteriores) {
 
 function pareceNomeProprio(texto) {
   const t = (texto || "").trim();
-  if (!t || t.length < 3 || t.length > 80) return false;
+  if (!t || t.length < 5 || t.length > 80) return false;
   if (/[?!]/.test(t)) return false;
-  // Aceita "João Silva", "Tiago Zago", "Maria da Silva"
-  return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{2,}$/.test(t);
+  // Sem pontuação no final (frase) — nomes não terminam em ponto
+  if (/[.,;:]$/.test(t)) return false;
+  // Pelo menos 2 palavras (nome + sobrenome)
+  const palavras = t.split(/\s+/).filter(p => p.length > 0);
+  if (palavras.length < 2) return false;
+  // Cada palavra começa com letra (não dígito)
+  if (!palavras.every(p => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(p))) return false;
+  // Rejeita saudações, respostas curtas, frases comuns
+  const tLower = t.toLowerCase();
+  const naoNome = [
+    "bom dia", "boa tarde", "boa noite", "tudo bem", "tudo certo",
+    "obrigado", "obrigada", "valeu", "beleza", "perfeito", "blz",
+    "pode ser", "claro que", "sem problema", "muito obrigado",
+    "sim senhor", "sim senhora", "ok entendi", "tá bom", "ta bom",
+  ];
+  if (naoNome.some(n => tLower === n || tLower.startsWith(n + " "))) return false;
+  // Rejeita frases com verbos comuns (heurística: contém " é ", " tá ", " está ", " sou ", " mora ", " tem ", " precisa ")
+  if (/\b(é|sou|tá|esta|está|tem|mora|preciso|precisa|quero|posso|vou|vai|seria)\b/i.test(t)) return false;
+  return true;
 }
 
 app.post("/webhook", async (req, res) => {
@@ -418,10 +435,25 @@ app.post("/webhook", async (req, res) => {
     const st = getEstado(telefone);
     if (st.aguardandoProprietario && pareceNomeProprio(mensagem)) {
       st.proprietario = mensagem.trim();
+      st.avisouFelipePendencia = false;
       salvarEstado();
       console.log(`[${telefone}] proprietário definido: ${st.proprietario}`);
       await zapiSendText(telefone, `Beleza, ${st.proprietario.split(" ")[0]}! Vou processar e arquivar agora 👍`);
       await processarMidiasPendentes(telefone, nomeLead, st.proprietario);
+      return;
+    }
+    // Se está aguardando proprietário mas a mensagem não parece nome (ex: "Bom dia", "Está", "Ok"),
+    // não captura. Se tiver mídia pendente há tempo, avisa o Felipe pra resolver manualmente.
+    if (st.aguardandoProprietario && (st.midiasPendentes || []).length > 0) {
+      console.log(`[${telefone}] aguardando proprietário, mas mensagem "${mensagem}" não parece nome próprio — ignorando captura`);
+      // Avisa Felipe 1x por sessão de espera
+      if (!st.avisouFelipePendencia) {
+        st.avisouFelipePendencia = true;
+        salvarEstado();
+        const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+        await zapiSendText(telefoneFelipe, `⚠️ *Mídia pendente sem proprietário* — Tales\n\nLead: ${nomeLead || "—"} (${telefone})\nMídias acumuladas: ${st.midiasPendentes.length}\nÚltima mensagem do lead: "${mensagem}"\n\nResponda manualmente pra esse lead — Tales não conseguiu identificar o nome do proprietário automaticamente.`);
+      }
+      // Não passa pra Tales responder também (evita despejar menu)
       return;
     }
 
