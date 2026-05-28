@@ -187,29 +187,27 @@ async function arquivarMidiaUnica(telefone, nomeLead, midia, proprietario, servi
 }
 
 async function processarMidiaRecebida(telefone, nomeLead, midia) {
-  const st = getEstado(telefone);
-  const servico = inferirServicoDaConversa(telefone);
-
-  if (st.proprietario) {
-    await arquivarMidiaUnica(telefone, nomeLead, midia, st.proprietario, servico);
-    return;
+  // Tales NÃO arquiva mais automaticamente. Apenas:
+  // 1. Acolhe o lead ("recebi seu documento")
+  // 2. Notifica Felipe pra arquivar manualmente
+  // 3. Pausa Tales nessa conversa (humano vai cuidar)
+  try {
+    await zapiSendText(telefone, "Recebi seu documento 📋 já estou repassando pra equipe analisar e arquivar. Em breve te retornamos 👍");
+  } catch (e) {
+    console.error(`[${telefone}] erro respondendo recebimento de mídia:`, e.message);
   }
 
-  // Sem proprietário ainda — baixa, salva em disco e pergunta
-  const buffer = await baixarMidia(midia.url);
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const arquivoLocal = path.join(MIDIA_DIR, `${telefone}_${id}_${midia.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
-  fs.writeFileSync(arquivoLocal, buffer);
-
-  if (!st.midiasPendentes) st.midiasPendentes = [];
-  st.midiasPendentes.push({ arquivoLocal, fileName: midia.fileName, mimeType: midia.mimeType, tipo: midia.tipo });
-  st.aguardandoProprietario = true;
-  salvarEstado();
-
-  if (st.midiasPendentes.length === 1) {
-    await zapiSendText(telefone, "Recebi! 📋 Antes de arquivar, qual o *nome do proprietário* do imóvel?");
+  const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+  const aviso = `📎 *Documento recebido — Tales*\n\n*Lead:* ${nomeLead || "—"} (${telefone})\n*Arquivo:* ${midia.fileName}\n*Tipo:* ${midia.tipo}\n\n_Tales NÃO arquivou automaticamente — baixa pelo WhatsApp e arquiva manualmente na pasta correta._\n\nTales foi pausado nessa conversa. Pra reativar, mande "/tales on" pro lead.`;
+  try {
+    await zapiSendText(telefoneFelipe, aviso);
+  } catch (e) {
+    console.error(`[${telefone}] erro avisando Felipe sobre mídia:`, e.message);
   }
-  console.log(`[${telefone}] mídia em espera (proprietário ainda não definido). Pendentes: ${st.midiasPendentes.length}`);
+
+  // Pausa Tales indefinidamente nessa conversa (humano assumiu)
+  pausarLead(telefone, 24 * 365);
+  console.log(`[${telefone}] mídia recebida (${midia.fileName}) — Felipe avisado, Tales pausado nessa conversa`);
 }
 
 async function processarMidiasPendentes(telefone, nomeLead, proprietario) {
@@ -360,9 +358,9 @@ app.post("/webhook", async (req, res) => {
         console.log(`[${phone}] Tales reativado manualmente`);
         return;
       }
-      // Senão, pausa Tales 4h (renova a cada mensagem manual)
-      pausarLead(phone, 4);
-      console.log(`[${phone}] mensagem manual da Native — Tales pausado 4h`);
+      // Senão, pausa Tales INDEFINIDAMENTE (humano assumiu — só reativa com /tales on)
+      pausarLead(phone, 24 * 365); // 1 ano = na prática indeterminado
+      console.log(`[${phone}] mensagem manual da Native — Tales pausado indefinidamente (use "/tales on" pra reativar)`);
       return;
     }
 
@@ -431,31 +429,6 @@ app.post("/webhook", async (req, res) => {
     if (!mensagem) return;
 
     console.log(`[${telefone}] ${nomeLead}: ${mensagem}`);
-
-    const st = getEstado(telefone);
-    if (st.aguardandoProprietario && pareceNomeProprio(mensagem)) {
-      st.proprietario = mensagem.trim();
-      st.avisouFelipePendencia = false;
-      salvarEstado();
-      console.log(`[${telefone}] proprietário definido: ${st.proprietario}`);
-      await zapiSendText(telefone, `Beleza, ${st.proprietario.split(" ")[0]}! Vou processar e arquivar agora 👍`);
-      await processarMidiasPendentes(telefone, nomeLead, st.proprietario);
-      return;
-    }
-    // Se está aguardando proprietário mas a mensagem não parece nome (ex: "Bom dia", "Está", "Ok"),
-    // não captura. Se tiver mídia pendente há tempo, avisa o Felipe pra resolver manualmente.
-    if (st.aguardandoProprietario && (st.midiasPendentes || []).length > 0) {
-      console.log(`[${telefone}] aguardando proprietário, mas mensagem "${mensagem}" não parece nome próprio — ignorando captura`);
-      // Avisa Felipe 1x por sessão de espera
-      if (!st.avisouFelipePendencia) {
-        st.avisouFelipePendencia = true;
-        salvarEstado();
-        const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
-        await zapiSendText(telefoneFelipe, `⚠️ *Mídia pendente sem proprietário* — Tales\n\nLead: ${nomeLead || "—"} (${telefone})\nMídias acumuladas: ${st.midiasPendentes.length}\nÚltima mensagem do lead: "${mensagem}"\n\nResponda manualmente pra esse lead — Tales não conseguiu identificar o nome do proprietário automaticamente.`);
-      }
-      // Não passa pra Tales responder também (evita despejar menu)
-      return;
-    }
 
     const resposta = await rodarAgente(telefone, nomeLead, mensagem);
     if (resposta) {
