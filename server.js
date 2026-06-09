@@ -341,10 +341,75 @@ function pareceNomeProprio(texto) {
   return true;
 }
 
+// Normaliza payload da Evolution API pro formato que o resto do código espera (estilo Z-API)
+function normalizarEvolution(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  // Se já parece Z-API (tem campo phone direto), retorna como está
+  if (raw.phone || raw.fromMe !== undefined) return raw;
+  // Evolution: { event, instance, data: { key, message, messageType, pushName, ... } }
+  const d = raw.data || raw;
+  const key = d.key || {};
+  const msg = d.message || {};
+  const remoteJid = key.remoteJid || d.remoteJid || "";
+  // Ignora grupos e broadcasts
+  const isGroup = remoteJid.endsWith("@g.us") || remoteJid.includes("-");
+  const phone = remoteJid.split("@")[0].replace(/\D/g, "");
+  const fromMe = !!key.fromMe;
+  const senderName = d.pushName || "";
+  const messageId = key.id || d.id;
+
+  // Texto: conversation | extendedTextMessage.text | imageMessage.caption | documentMessage.caption
+  const textoConteudo =
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.documentMessage?.caption ||
+    msg.videoMessage?.caption ||
+    "";
+
+  const out = {
+    phone,
+    fromMe,
+    isGroup,
+    senderName,
+    chatName: senderName,
+    messageId,
+    text: textoConteudo ? { message: textoConteudo } : undefined,
+    message: textoConteudo,
+  };
+
+  // Mídia
+  if (msg.imageMessage) {
+    out.image = {
+      url: msg.imageMessage.url || null,
+      imageUrl: msg.imageMessage.url || null,
+      fileName: msg.imageMessage.fileName || `imagem-${Date.now()}.jpg`,
+      mimeType: msg.imageMessage.mimetype || "image/jpeg",
+      caption: msg.imageMessage.caption,
+    };
+  }
+  if (msg.documentMessage) {
+    out.document = {
+      url: msg.documentMessage.url || null,
+      documentUrl: msg.documentMessage.url || null,
+      fileName: msg.documentMessage.fileName || `documento-${Date.now()}`,
+      mimeType: msg.documentMessage.mimetype || "application/octet-stream",
+      caption: msg.documentMessage.caption,
+    };
+  }
+  if (msg.audioMessage) {
+    out.audio = {
+      url: msg.audioMessage.url || null,
+      audioUrl: msg.audioMessage.url || null,
+    };
+  }
+  return out;
+}
+
 app.post("/webhook", async (req, res) => {
   res.status(200).send("ok");
   try {
-    const body = req.body || {};
+    const body = normalizarEvolution(req.body || {});
     if (body.isGroup) return;
 
     // Mensagem ENVIADA pelo WhatsApp da Native (Felipe/Gustavo manual) → silencia Tales naquela conversa
@@ -411,20 +476,12 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // Áudio: transcreve e trata como mensagem de texto
     let mensagem = body.text?.message || body.message || body.body || "";
+    // Áudio sem transcrição (Evolution não tem nativo) — pede pra digitar
     if (!mensagem && body.audio) {
-      const audioUrl = body.audio.audioUrl || body.audio.url;
-      const transcription = body.audio.transcription
-        || await zapiTranscreverAudio({ messageId: body.messageId, audioUrl });
-      if (transcription) {
-        mensagem = transcription;
-        console.log(`[${telefone}] 🎙️  áudio transcrito: ${mensagem}`);
-      } else {
-        console.warn(`[${telefone}] áudio recebido mas sem transcrição`);
-        await zapiSendText(telefone, "Recebi seu áudio 🎙️ mas tive dificuldade de entender. Pode digitar pra mim?");
-        return;
-      }
+      console.warn(`[${telefone}] áudio recebido — sem transcrição (Evolution)`);
+      await zapiSendText(telefone, "Recebi seu áudio 🎙️ mas não consigo escutar agora. Pode digitar pra mim?");
+      return;
     }
     if (!mensagem) return;
 
