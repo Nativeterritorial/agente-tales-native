@@ -39,11 +39,14 @@ const PAUSA_FILE = path.join(DATA_DIR, "pausas.json");
 const TELEFONE_FELIPE = process.env.TELEFONE_FELIPE || "5554992215356";
 const TELEFONE_PRECILA = process.env.TELEFONE_PRECILA || "5554991495120";
 
-export async function transferir_humano({ nome_lead, telefone_lead, servico, resumo, responsavel }) {
+export async function transferir_humano({ nome_lead, telefone_lead, servico, resumo, responsavel, origem }) {
   const r = (responsavel || "").toLowerCase();
   const destino = r === "precila" ? TELEFONE_PRECILA : TELEFONE_FELIPE;
   const nomeResp = r === "precila" ? "Precila" : "Felipe";
-  const texto = `🔔 *Lead transferido — Tales*\n\n*Nome:* ${nome_lead || "—"}\n*Telefone:* ${telefone_lead || "—"}\n*Serviço:* ${servico || "—"}\n\n*Resumo:* ${resumo}`;
+  const tagOrigem = origem?.fonte === "meta_ads"
+    ? `\n*🎯 Origem:* Anúncio Meta — "${origem.titulo || "(sem título)"}"`
+    : "";
+  const texto = `🔔 *Lead transferido — Tales*\n\n*Nome:* ${nome_lead || "—"}\n*Telefone:* ${telefone_lead || "—"}\n*Serviço:* ${servico || "—"}${tagOrigem}\n\n*Resumo:* ${resumo}`;
 
   await zapiSendText(destino, texto);
 
@@ -52,6 +55,7 @@ export async function transferir_humano({ nome_lead, telefone_lead, servico, res
     status: "TRANSFERIDO",
     responsavel: nomeResp,
     nome_lead, telefone_lead, servico, resumo,
+    origem: origem || null,
   }) + "\n");
 
   if (telefone_lead) {

@@ -69,6 +69,10 @@ function montarContextoCliente(telefone) {
   if (!st.proprietario && conv.length === 0) return "";
 
   const partes = [];
+  if (st.origem?.fonte === "meta_ads") {
+    const titulo = st.origem.titulo || "(sem título)";
+    partes.push(`- 🎯 LEAD VEIO DO META ADS: clicou no anúncio "${titulo}"${st.origem.descricao ? ` — "${st.origem.descricao}"` : ""}. Acolhe referenciando o anúncio ("vi que você veio do nosso anúncio sobre X"), seja DIRETO indo pro serviço relacionado, e qualifica rápido (cidade + necessidade) sem rodeio. Lead de tráfego pago é caro e tem pressa.`);
+  }
   if (st.proprietario) partes.push(`- Proprietário/cliente já identificado: ${st.proprietario}`);
   if (st.servico) partes.push(`- Serviço em discussão: ${st.servico}`);
   if (st.ultimaInteracao) {
@@ -117,7 +121,13 @@ async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
       for (const block of r.content) {
         if (block.type === "tool_use") {
           console.log(`  → tool: ${block.name}(${JSON.stringify(block.input)})`);
-          const result = await executarTool(block.name, { ...block.input, telefone_lead: block.input.telefone_lead || telefone, nome_lead: block.input.nome_lead || nomeLead });
+          const stTool = estado[telefone] || {};
+          const result = await executarTool(block.name, {
+            ...block.input,
+            telefone_lead: block.input.telefone_lead || telefone,
+            nome_lead: block.input.nome_lead || nomeLead,
+            origem: block.input.origem || stTool.origem || null,
+          });
           toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) });
         }
       }
@@ -403,6 +413,29 @@ function normalizarEvolution(raw) {
       audioUrl: msg.audioMessage.url || null,
     };
   }
+
+  // Click-to-WhatsApp Ads (Meta) — extrai info do anúncio que originou o lead.
+  // Evolution/Baileys traz em contextInfo.externalAdReply
+  const ctx =
+    msg.extendedTextMessage?.contextInfo ||
+    msg.imageMessage?.contextInfo ||
+    msg.videoMessage?.contextInfo ||
+    msg.conversation?.contextInfo ||
+    d.contextInfo ||
+    null;
+  const ad = ctx?.externalAdReply;
+  if (ad) {
+    out.referral = {
+      titulo: ad.title || null,
+      descricao: ad.body || null,
+      sourceUrl: ad.sourceUrl || null,
+      sourceId: ad.sourceId || null,
+      sourceType: ad.sourceType || null,   // ad, post, etc.
+      mediaType: ad.mediaType || null,     // image, video
+      ctwaClid: ad.ctwaClid || ctx?.ctwaClid || null,
+      thumbnailUrl: ad.thumbnailUrl || null,
+    };
+  }
   return out;
 }
 
@@ -468,6 +501,26 @@ app.post("/webhook", async (req, res) => {
     if (leadEstaPausado(telefone)) {
       console.log(`[${telefone}] pausado (transferido) — ignorando`);
       return;
+    }
+
+    // Captura origem (Click-to-WhatsApp do Meta) — grava no estado se ainda não tem
+    if (body.referral) {
+      const st = getEstado(telefone);
+      if (!st.origem) {
+        st.origem = {
+          fonte: "meta_ads",
+          ...body.referral,
+          capturadoEm: new Date().toISOString(),
+        };
+        salvarEstado();
+        console.log(`[${telefone}] 🎯 lead veio de anúncio Meta: "${body.referral.titulo || "(sem título)"}"`);
+        const telefoneFelipe = process.env.TELEFONE_FELIPE || "5554992215356";
+        try {
+          await zapiSendText(telefoneFelipe, `🎯 *Novo lead do anúncio*\n\n*Telefone:* ${telefone}\n*Nome:* ${nomeLead || "—"}\n*Anúncio:* ${body.referral.titulo || "—"}\n${body.referral.descricao ? `*Descrição:* ${body.referral.descricao}\n` : ""}${body.referral.sourceUrl ? `*Link:* ${body.referral.sourceUrl}` : ""}`);
+        } catch (e) {
+          console.warn(`[${telefone}] falha avisando Felipe sobre lead Meta: ${e.message}`);
+        }
+      }
     }
 
     const midia = extrairMidiaDoWebhook(body);
