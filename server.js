@@ -560,6 +560,28 @@ app.post("/webhook", async (req, res) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true, conversas: Object.keys(historico).length, dataDir: DATA_DIR }));
 
+// Últimas conversas (protegido por token = EVOLUTION_API_KEY). Uso: /ultimas?token=XXX&n=5
+app.get("/ultimas", (req, res) => {
+  const token = req.query.token || req.headers["x-admin-token"];
+  if (!token || token !== process.env.EVOLUTION_API_KEY) return res.status(401).json({ erro: "token inválido" });
+  const n = Math.min(parseInt(req.query.n || "5", 10) || 5, 50);
+  const textoDe = (m) => {
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) return m.content.map(c => c.text || (c.type === "tool_use" ? `[tool:${c.name}]` : c.type === "tool_result" ? "[tool_result]" : "")).filter(Boolean).join(" ");
+    return "";
+  };
+  const lista = Object.entries(historico)
+    .map(([tel, conv]) => {
+      const st = estado[tel] || {};
+      const ultimas = conv.slice(-6).map(m => ({ de: m.role === "user" ? "lead" : "tales", texto: textoDe(m).slice(0, 300) }));
+      return { telefone: tel, ultimaInteracao: st.ultimaInteracao || null, origem: st.origem?.fonte || null, servico: st.servico || null, pausado: leadEstaPausado(tel), mensagens: ultimas };
+    })
+    .filter(c => c.ultimaInteracao)
+    .sort((a, b) => new Date(b.ultimaInteracao) - new Date(a.ultimaInteracao))
+    .slice(0, n);
+  res.json({ total: Object.keys(historico).length, ultimas: lista });
+});
+
 // Trigger manual dos lembretes (útil pra testar)
 app.post("/lembretes/run", async (_req, res) => {
   try {
