@@ -134,16 +134,9 @@ export async function zapiSendText(phone, message) {
   return r.ok;
 }
 
+// consultar_preco_georreferenciamento foi REMOVIDA do catálogo de tools:
+// Tales não deve passar nenhum valor pro lead. Orçamento é sempre do Felipe/Precila.
 export const TOOL_DEFS = [
-  {
-    name: "consultar_preco_georreferenciamento",
-    description: "Consulta a faixa de preço de georreferenciamento de imóvel rural conforme a área em hectares. Use quando o lead pedir orçamento de georreferenciamento e disser a área.",
-    input_schema: {
-      type: "object",
-      properties: { area_hectares: { type: "number", description: "Área do imóvel em hectares" } },
-      required: ["area_hectares"],
-    },
-  },
   {
     name: "transferir_humano",
     description: "Transfere o lead pro responsável correto. Use 'felipe' pra georreferenciamento/topografia/loteamento/GeoCidade. Use 'precila' pra licenciamento ambiental, corte/supressão de vegetação, transplante vegetal, CAR, defesa de multa ambiental ou qualquer assunto ambiental que exija análise específica.",
