@@ -351,6 +351,24 @@ function pareceNomeProprio(texto) {
   return true;
 }
 
+// Rede de segurança: converte markdown que o modelo às vezes gera pra formato nativo do WhatsApp.
+// WhatsApp não renderiza **negrito**, # títulos nem "- listas" — chega tudo como texto sujo.
+function formatarParaWhatsApp(texto) {
+  let t = String(texto || "");
+  t = t.replace(/\*\*(.+?)\*\*/gs, "*$1*");             // **x** → *x*
+  t = t.replace(/__(.+?)__/gs, "_$1_");                 // __x__ → _x_
+  t = t.replace(/^\s{0,3}#{1,6}\s+/gm, "");             // # Título → Título
+  t = t.replace(/^\s*[-•*]\s+/gm, "");                  // - item / • item → item
+  t = t.replace(/^\s*\d+[.)]\s+/gm, "");                // 1. item → item
+  t = t.replace(/`([^`]+)`/g, "$1");                    // `code` → code
+  // Emojis: mantém no máximo 1 (o primeiro); remove os demais
+  const emojiRx = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F900}-\u{1F9FF}\u{FE0F}]/gu;
+  let visto = false;
+  t = t.replace(emojiRx, (m) => { if (visto) return ""; visto = true; return m; });
+  t = t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return t;
+}
+
 // Normaliza payload da Evolution API pro formato que o resto do código espera (estilo Z-API)
 function normalizarEvolution(raw) {
   if (!raw || typeof raw !== "object") return raw;
@@ -549,8 +567,9 @@ app.post("/webhook", async (req, res) => {
       if (/\[SILENCIO\]/i.test(resposta.trim())) {
         console.log(`[${telefone}] Tales: [SILENCIO] — não respondeu`);
       } else {
-        await zapiSendText(telefone, resposta);
-        console.log(`[${telefone}] Tales: ${resposta}`);
+        const limpa = formatarParaWhatsApp(resposta);
+        await zapiSendText(telefone, limpa);
+        console.log(`[${telefone}] Tales: ${limpa}`);
       }
     }
   } catch (e) {
