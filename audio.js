@@ -1,8 +1,20 @@
 // Áudio do WhatsApp em texto. Baixa o áudio pela Evolution (getBase64FromMediaMessage) e transcreve
-// na OpenAI. Só funciona com OPENAI_API_KEY no ambiente; sem ela, o Tales pede para escrever.
-// Modelo: OPENAI_MODELO_AUDIO (padrão gpt-4o-mini-transcribe; "whisper-1" também serve).
+// com Whisper. Serviço, pela variável que existir no ambiente:
+//   GROQ_API_KEY   → Groq (padrão; modelo GROQ_MODELO_AUDIO, padrão whisper-large-v3-turbo)
+//   OPENAI_API_KEY → OpenAI (modelo OPENAI_MODELO_AUDIO, padrão gpt-4o-mini-transcribe)
+// Sem nenhuma das duas, o Tales pede para escrever.
 
-export const audioLigado = () => Boolean(process.env.OPENAI_API_KEY);
+function servico() {
+  if (process.env.GROQ_API_KEY) {
+    return { nome: "Groq", url: "https://api.groq.com/openai/v1/audio/transcriptions", chave: process.env.GROQ_API_KEY, modelo: process.env.GROQ_MODELO_AUDIO || "whisper-large-v3-turbo" };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return { nome: "OpenAI", url: "https://api.openai.com/v1/audio/transcriptions", chave: process.env.OPENAI_API_KEY, modelo: process.env.OPENAI_MODELO_AUDIO || "gpt-4o-mini-transcribe" };
+  }
+  return null;
+}
+
+export const audioLigado = () => Boolean(servico());
 
 async function baixarAudio(key) {
   const base = (process.env.EVOLUTION_BASE_URL || "").replace(/\/$/, "");
@@ -20,20 +32,21 @@ async function baixarAudio(key) {
 
 /** Texto do áudio, ou null se não deu (o motivo vai para o log). */
 export async function transcreverAudio(key, telefone) {
-  if (!audioLigado() || !key?.id) return null;
+  const sv = servico();
+  if (!sv || !key?.id) return null;
   try {
     const { dados, mime } = await baixarAudio(key);
     const form = new FormData();
     form.append("file", new Blob([dados], { type: mime }), mime.includes("mp4") ? "audio.m4a" : mime.includes("mpeg") ? "audio.mp3" : "audio.ogg");
-    form.append("model", process.env.OPENAI_MODELO_AUDIO || "gpt-4o-mini-transcribe");
+    form.append("model", sv.modelo);
     form.append("language", "pt");
-    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const r = await fetch(sv.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      headers: { Authorization: `Bearer ${sv.chave}` },
       body: form,
       signal: AbortSignal.timeout(60000),
     });
-    if (!r.ok) throw new Error(`OpenAI respondeu ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    if (!r.ok) throw new Error(`${sv.nome} respondeu ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const texto = String((await r.json()).text || "").trim();
     console.log(`[${telefone}] áudio transcrito: ${texto.slice(0, 120)}`);
     return texto || null;
