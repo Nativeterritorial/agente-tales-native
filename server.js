@@ -12,6 +12,7 @@ import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
 import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
 import { agendarLembretes, rodarLembretes } from "./lembretes.js";
+import { consultarClienteNoSistema, contextoDoSistema } from "./sistema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -52,13 +53,17 @@ function getEstado(telefone) {
 const t = tamanhoEstimado();
 console.log(`📚 Base INCRA carregada: ~${t.tokensEstimados} tokens`);
 
-function systemBlocks(contextoCliente = "") {
+function systemBlocks(contextoCliente = "", contextoSistema = "") {
   const blocks = [
     { type: "text", text: carregarConhecimento(), cache_control: { type: "ephemeral" } },
     { type: "text", text: SYSTEM_PROMPT },
   ];
   if (contextoCliente) {
     blocks.push({ type: "text", text: `# CONTEXTO DESTE LEAD (memória de conversas anteriores)\n${contextoCliente}` });
+  }
+  if (contextoSistema) {
+    blocks.push({ type: "text", text: `# DADOS DO SISTEMA NATIVE SOBRE ESTE CLIENTE (atualizados agora; só deste número)
+${contextoSistema}` });
   }
   return blocks;
 }
@@ -97,6 +102,8 @@ async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
   let iter = 0;
 
   const contexto = montarContextoCliente(telefone);
+  const contextoSistema = contextoDoSistema(await consultarClienteNoSistema(telefone));
+  if (contextoSistema) console.log(`[${telefone}] cliente do Sistema: contexto com processos e pagamentos`);
   // marca interação atual
   const st = getEstado(telefone);
   st.ultimaInteracao = new Date().toISOString();
@@ -106,7 +113,7 @@ async function rodarAgente(telefone, nomeLead, mensagemUsuario) {
     const r = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1500,
-      system: systemBlocks(contexto),
+      system: systemBlocks(contexto, contextoSistema),
       tools: TOOL_DEFS,
       messages: conv,
     });
