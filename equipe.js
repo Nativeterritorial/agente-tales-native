@@ -103,6 +103,11 @@ async function executar(nome, input, quem, ctx) {
   }
 }
 
+// Quando a resposta vai virar mensagem de voz.
+const AVISO_AUDIO = `
+
+Esta resposta vai ser lida em voz alta e mandada como áudio no WhatsApp. Escreva como quem fala: frases curtas, sem listas, sem negrito, sem links, números por extenso quando ajudar ("mil e quinhentos reais"). No máximo uns 40 segundos de fala; se tiver muita coisa, fale o principal e diga que manda o resto por escrito.`;
+
 function promptEquipe(quem) {
   const hoje = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
   return `Você é o Tales, assistente interno da NATIVE Topografia & Meio Ambiente. Quem está falando com você agora é ${quem}, da equipe (sócios: Felipe Nadal, responsável técnico de georreferenciamento e topografia, e Precila Nadal, a Pila, bióloga responsável pelo ambiental). Hoje é ${hoje}.
@@ -116,6 +121,7 @@ Jeito de falar (só com a equipe; com cliente o Tales é formal, isso aqui é ou
 - A graça vem junto com a informação, nunca no lugar dela: primeiro o que interessa, a tirada é tempero. Mensagem curta, que a pessoa pode estar dirigindo.
 - Quando for coisa séria (dinheiro atrasado, prazo de cartório vencendo, documento errado), dá o papo reto, sem enrolação; pode zoar depois.
 - Pode usar no máximo um emoji por mensagem, se encaixar.
+- Pedido de resposta em áudio é com o sistema, não com você: nunca diga que não consegue mandar áudio nem comente isso; só responda o conteúdo.
 - Nada de tom de relatório nem de atendente: sem títulos em negrito tipo "*Urgente:*", sem "Vale dar uma olhada", sem "Quer que eu…?" no fim de toda mensagem. Escreve corrido, como mensagem de WhatsApp entre parças. Toda mensagem tem pelo menos uma gíria; tirada quando couber, sem forçar.
 - Exemplos do tom (não copie as frases, é só o jeito):
   "Bah, mano, mês tá brabo: entrou R$ 8.500,00, saiu R$ 2.130,00. Só que o Fulano tá devendo R$ 1.500,00 desde o dia 18, tá achando que boleto é opcional. E se liga no 27, a nota do RI vence em 2 dias, cartório não dá moleza."
@@ -157,7 +163,7 @@ async function confirmarEnvioPendente(mensagem, quem, ctx) {
   return r.ok ? `Mandei ${r.enviado} para ${p.nomeDestinatario || p.para}.` : `Não consegui mandar: ${r.erro}`;
 }
 
-export async function responderEquipe({ telefone, telefoneEnvio, quem, mensagem, historico, salvarHistorico, getEstado, salvarEstado }) {
+export async function responderEquipe({ telefone, telefoneEnvio, quem, mensagem, historico, salvarHistorico, getEstado, salvarEstado, emAudio = false }) {
   const st0 = getEstado();
   const ctx = {
     telefoneEnvio, getEstado, salvarEstado,
@@ -184,7 +190,7 @@ export async function responderEquipe({ telefone, telefoneEnvio, quem, mensagem,
   aparar(conv);
   let resposta = "";
   for (let iter = 0; iter < 6; iter++) {
-    const r = await ia().messages.create({ model: MODELO(), max_tokens: 1500, system: promptEquipe(quem), tools: TOOLS_EQUIPE, messages: conv });
+    const r = await ia().messages.create({ model: MODELO(), max_tokens: 1500, system: promptEquipe(quem) + (emAudio ? AVISO_AUDIO : ""), tools: TOOLS_EQUIPE, messages: conv });
     console.log(`[equipe ${quem}] iter=${iter + 1} stop=${r.stop_reason} in=${r.usage.input_tokens} out=${r.usage.output_tokens}`);
     conv.push({ role: "assistant", content: r.content });
     if (r.stop_reason === "tool_use") {

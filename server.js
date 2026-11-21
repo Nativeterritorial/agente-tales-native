@@ -15,6 +15,7 @@ import { agendarLembretes, rodarLembretes } from "./lembretes.js";
 import { consultarClienteNoSistema, contextoDoSistema } from "./sistema.js";
 import { responderEquipe } from "./equipe.js";
 import { audioLigado, transcreverAudio } from "./audio.js";
+import { pediuAudio, responderEmAudio, vozLigada } from "./voz.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -560,8 +561,17 @@ app.post("/webhook", async (req, res) => {
           return;
         }
         console.log(`[${telefone}] equipe (${quem}): ${texto}`);
-        const resposta = await responderEquipe({ telefone: telCanon, telefoneEnvio: telefone, quem, mensagem: texto, historico, salvarHistorico, getEstado: () => getEstado(telefone), salvarEstado });
-        if (resposta) await zapiSendText(telefone, formatarParaWhatsApp(resposta));
+        const emAudio = pediuAudio(texto) && vozLigada();
+        const resposta = await responderEquipe({ telefone: telCanon, telefoneEnvio: telefone, quem, mensagem: texto, historico, salvarHistorico, getEstado: () => getEstado(telefone), salvarEstado, emAudio });
+        if (resposta) {
+          const limpa = formatarParaWhatsApp(resposta);
+          const foiEmAudio = emAudio && (await responderEmAudio(telefone, limpa));
+          // Em áudio, o texto só vai junto se tiver link (não dá para clicar num áudio).
+          if (!foiEmAudio || /https?:\/\//.test(limpa)) {
+            const aviso = pediuAudio(texto) && !vozLigada() ? "\n\n(Ainda não falo em áudio: falta ligar a voz.)" : "";
+            await zapiSendText(telefone, limpa + aviso);
+          }
+        }
         return;
       }
       console.log(`[${telefone}] equipe em modo teste — atendendo como cliente`);
