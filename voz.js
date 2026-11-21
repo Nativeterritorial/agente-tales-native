@@ -5,6 +5,17 @@
 
 export const vozLigada = () => Boolean(process.env.ELEVENLABS_API_KEY);
 
+// Áudio custa por caractere: acima disto, fala só o começo (até o fim de uma frase) e o texto inteiro vai por escrito.
+const LIMITE = Number(process.env.ELEVENLABS_MAX_CARACTERES) || 400;
+
+/** Corta no fim da última frase que cabe no limite. */
+function cortarNaFrase(texto) {
+  if (texto.length <= LIMITE) return { fala: texto, cortado: false };
+  const pedaco = texto.slice(0, LIMITE);
+  const fim = Math.max(pedaco.lastIndexOf(". "), pedaco.lastIndexOf("! "), pedaco.lastIndexOf("? "), pedaco.lastIndexOf("\n"));
+  return { fala: (fim > LIMITE * 0.4 ? pedaco.slice(0, fim + 1) : pedaco).trim(), cortado: true };
+}
+
 /** Pedido de resposta em áudio na mensagem ("me responde por áudio", "manda em áudio", "fala comigo"). */
 export function pediuAudio(texto) {
   const t = String(texto || "").toLowerCase();
@@ -18,14 +29,13 @@ function paraFala(texto) {
     .replace(/[*_~`]/g, "")
     .replace(/^\s*[•-]\s*/gm, "")
     .replace(/\n{2,}/g, "\n")
-    .trim()
-    .slice(0, 2500);
+    .trim();
 }
 
-/** Gera a voz e manda como áudio. Devolve true se foi; false (com motivo no log) para cair no texto. */
+/** Gera a voz e manda como áudio. Devolve "inteiro" ou "parcial" (resposta longa: o texto também deve ir) ou false (cai no texto). */
 export async function responderEmAudio(telefone, texto) {
   if (!vozLigada()) return false;
-  const fala = paraFala(texto);
+  const { fala, cortado } = cortarNaFrase(paraFala(texto));
   if (!fala) return false;
   try {
     const voz = process.env.ELEVENLABS_VOZ || "gKvws1YX3m9Z1RSlS1SS";
@@ -45,8 +55,8 @@ export async function responderEmAudio(telefone, texto) {
       signal: AbortSignal.timeout(60000),
     });
     if (!e.ok) throw new Error(`Evolution recusou o áudio (${e.status}): ${(await e.text()).slice(0, 200)}`);
-    console.log(`[${telefone}] resposta mandada em áudio (${fala.length} caracteres)`);
-    return true;
+    console.log(`[${telefone}] resposta mandada em áudio (${fala.length} caracteres${cortado ? ", cortada" : ""})`);
+    return cortado ? "parcial" : "inteiro";
   } catch (err) {
     console.warn(`[${telefone}] não deu para responder em áudio: ${err.message}`);
     return false;

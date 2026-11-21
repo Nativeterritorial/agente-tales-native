@@ -106,7 +106,7 @@ async function executar(nome, input, quem, ctx) {
 // Quando a resposta vai virar mensagem de voz.
 const AVISO_AUDIO = `
 
-Esta resposta vai ser lida em voz alta e mandada como áudio no WhatsApp. Escreva como quem fala: frases curtas, sem listas, sem negrito, sem links, números por extenso quando ajudar ("mil e quinhentos reais"). No máximo uns 40 segundos de fala; se tiver muita coisa, fale o principal e diga que manda o resto por escrito.`;
+Esta resposta vai ser lida em voz alta e mandada como áudio no WhatsApp. Escreva como quem fala: frases curtas, sem listas, sem negrito, sem links, números por extenso quando ajudar ("mil e quinhentos reais"). Seja BEM curto: no máximo 2 ou 3 frases curtas, uns 15 segundos de fala (até uns 300 caracteres). Só o essencial, que áudio custa por caractere. Se tiver mais coisa, fale o principal e diga que o detalhe vai por escrito.`;
 
 function promptEquipe(quem) {
   const hoje = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });

@@ -566,8 +566,8 @@ app.post("/webhook", async (req, res) => {
         if (resposta) {
           const limpa = formatarParaWhatsApp(resposta);
           const foiEmAudio = emAudio && (await responderEmAudio(telefone, limpa));
-          // Em áudio, o texto só vai junto se tiver link (não dá para clicar num áudio).
-          if (!foiEmAudio || /https?:\/\//.test(limpa)) {
+          // Em áudio, o texto também vai quando tem link (não dá para clicar num áudio) ou quando o áudio saiu cortado.
+          if (!foiEmAudio || foiEmAudio === "parcial" || /https?:\/\//.test(limpa)) {
             const aviso = pediuAudio(texto) && !vozLigada() ? "\n\n(Ainda não falo em áudio: falta ligar a voz.)" : "";
             await zapiSendText(telefone, limpa + aviso);
           }
