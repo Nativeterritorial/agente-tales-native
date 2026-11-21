@@ -1,7 +1,7 @@
 // Resposta em áudio (mensagem de voz) para a equipe. Texto → voz no ElevenLabs → WhatsApp pela Evolution
 // (sendWhatsAppAudio, que entrega como áudio gravado). Só funciona com ELEVENLABS_API_KEY no ambiente.
-// Voz: ELEVENLABS_VOZ (id da voz; escolha uma brasileira na Voice Library). Modelo: ELEVENLABS_MODELO
-// (padrão eleven_multilingual_v2; eleven_flash_v2_5 custa metade e responde mais rápido).
+// Voz: ELEVENLABS_VOZ (padrão: a voz "Tales" criada na conta da NATIVE — Porto Alegre, arrastada).
+// Modelo: ELEVENLABS_MODELO (padrão eleven_v4, o mesmo usado no teste da voz; eleven_flash_v2_5 é mais barato).
 
 export const vozLigada = () => Boolean(process.env.ELEVENLABS_API_KEY);
 
@@ -28,11 +28,11 @@ export async function responderEmAudio(telefone, texto) {
   const fala = paraFala(texto);
   if (!fala) return false;
   try {
-    const voz = process.env.ELEVENLABS_VOZ || "JBFqnCBsd6RMkjVDRZzb";
+    const voz = process.env.ELEVENLABS_VOZ || "gKvws1YX3m9Z1RSlS1SS";
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voz)}?output_format=mp3_44100_64`, {
       method: "POST",
       headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: fala, model_id: process.env.ELEVENLABS_MODELO || "eleven_multilingual_v2" }),
+      body: JSON.stringify({ text: fala, model_id: process.env.ELEVENLABS_MODELO || "eleven_v4" }),
       signal: AbortSignal.timeout(60000),
     });
     if (!r.ok) throw new Error(`ElevenLabs respondeu ${r.status}: ${(await r.text()).slice(0, 200)}`);
