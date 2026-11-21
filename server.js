@@ -515,8 +515,30 @@ app.post("/webhook", async (req, res) => {
     });
     console.log(`[${telefone}] check equipe — telNorm=${telNorm} equipe=[${equipe.join(",")}] match=${ehDaEquipe}`);
     if (ehDaEquipe) {
-      console.log(`[${telefone}] mensagem da equipe — Tales ignora (qualquer tipo de mídia/texto)`);
-      return;
+      // Modo teste: alguém da equipe pede para ser atendido como um cliente qualquer (o Tales não sabe que é da equipe).
+      // "/tales cliente" liga, "/tales normal" desliga. Fica guardado no estado do número.
+      const textoEquipe = String(body.text?.message || body.message || "").trim();
+      const stEquipe = getEstado(telefone);
+      if (/^\/tales\s+(cliente|teste)\b/i.test(textoEquipe)) {
+        stEquipe.comoCliente = true;
+        salvarEstado();
+        despausarLead(telefone);
+        await zapiSendText(telefone, "Modo teste ligado: a partir da próxima mensagem, este número é atendido como cliente. Para voltar ao normal, mande /tales normal.");
+        console.log(`[${telefone}] equipe ligou o modo teste (atender como cliente)`);
+        return;
+      }
+      if (/^\/tales\s+normal\b/i.test(textoEquipe)) {
+        delete stEquipe.comoCliente;
+        salvarEstado();
+        await zapiSendText(telefone, "Modo teste desligado: o Tales volta a não responder este número.");
+        console.log(`[${telefone}] equipe desligou o modo teste`);
+        return;
+      }
+      if (!stEquipe.comoCliente) {
+        console.log(`[${telefone}] mensagem da equipe — Tales ignora (qualquer tipo de mídia/texto)`);
+        return;
+      }
+      console.log(`[${telefone}] equipe em modo teste — atendendo como cliente`);
     }
 
     const parceiro = ehParceiro(telefone);
