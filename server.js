@@ -13,6 +13,7 @@ import { extrairMidiaDoWebhook, processarMidia } from "./media.js";
 import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
 import { agendarLembretes, rodarLembretes } from "./lembretes.js";
 import { consultarClienteNoSistema, contextoDoSistema } from "./sistema.js";
+import { responderEquipe } from "./equipe.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -515,27 +516,47 @@ app.post("/webhook", async (req, res) => {
     });
     console.log(`[${telefone}] check equipe — telNorm=${telNorm} equipe=[${equipe.join(",")}] match=${ehDaEquipe}`);
     if (ehDaEquipe) {
-      // Modo teste: alguém da equipe pede para ser atendido como um cliente qualquer (o Tales não sabe que é da equipe).
-      // "/tales cliente" liga, "/tales normal" desliga. Fica guardado no estado do número.
+      // Números da equipe. Modo guardado por número:
+      //   equipe  → (padrão do Felipe e da Pila) assistente interno que consulta o Sistema NATIVE
+      //   cliente → teste: atendido como cliente comum (o Tales não sabe que é da equipe)
+      //   off     → o Tales não responde (padrão dos outros números da equipe)
+      // Comandos: /tales equipe | /tales cliente | /tales off  ("/tales normal" = equipe)
       const textoEquipe = String(body.text?.message || body.message || "").trim();
       const stEquipe = getEstado(telefone);
-      if (/^\/tales\s+(cliente|teste)\b/i.test(textoEquipe)) {
-        stEquipe.comoCliente = true;
-        salvarEstado();
-        despausarLead(telefone);
-        await zapiSendText(telefone, "Modo teste ligado: a partir da próxima mensagem, este número é atendido como cliente. Para voltar ao normal, mande /tales normal.");
-        console.log(`[${telefone}] equipe ligou o modo teste (atender como cliente)`);
-        return;
-      }
-      if (/^\/tales\s+normal\b/i.test(textoEquipe)) {
+      const quem =
+        canonBr(process.env.TELEFONE_FELIPE) === telCanon ? "Felipe" :
+        canonBr(process.env.TELEFONE_PRECILA) === telCanon ? "Pila (Precila)" : null;
+      const comando = textoEquipe.match(/^\/tales\s+(cliente|teste|equipe|normal|off)\b/i);
+      if (comando) {
+        const pedido = comando[1].toLowerCase();
+        const modoNovo = pedido === "cliente" || pedido === "teste" ? "cliente" : pedido === "off" || !quem ? "off" : "equipe";
+        stEquipe.modoEquipe = modoNovo;
         delete stEquipe.comoCliente;
         salvarEstado();
-        await zapiSendText(telefone, "Modo teste desligado: o Tales volta a não responder este número.");
-        console.log(`[${telefone}] equipe desligou o modo teste`);
+        if (modoNovo === "cliente") despausarLead(telefone);
+        const aviso = {
+          cliente: "Modo teste ligado: a partir da próxima mensagem, este número é atendido como cliente. Para voltar, mande /tales equipe.",
+          equipe: `Modo equipe, ${quem?.split(" ")[0]}. Pode me perguntar sobre clientes, processos, recebimentos, atrasos e prazos, ou pedir para anotar num processo. Para eu parar de responder, mande /tales off.`,
+          off: quem ? "Certo, não respondo mais este número. Para voltar, mande /tales equipe." : "O modo equipe é só para o Felipe e a Pila. Não vou responder este número.",
+        }[modoNovo];
+        await zapiSendText(telefone, aviso);
+        console.log(`[${telefone}] equipe mudou o modo para ${modoNovo}`);
         return;
       }
-      if (!stEquipe.comoCliente) {
-        console.log(`[${telefone}] mensagem da equipe — Tales ignora (qualquer tipo de mídia/texto)`);
+      const modo = stEquipe.modoEquipe || (stEquipe.comoCliente ? "cliente" : quem ? "equipe" : "off");
+      if (modo === "off" || (modo === "equipe" && !quem)) {
+        console.log(`[${telefone}] mensagem da equipe — Tales ignora (modo ${modo})`);
+        return;
+      }
+      if (modo === "equipe") {
+        const texto = body.text?.message || body.message || body.body || "";
+        if (!texto) {
+          await zapiSendText(telefone, "No modo equipe, por enquanto eu só entendo mensagem escrita.");
+          return;
+        }
+        console.log(`[${telefone}] equipe (${quem}): ${texto}`);
+        const resposta = await responderEquipe({ telefone: telCanon, quem, mensagem: texto, historico, salvarHistorico });
+        if (resposta) await zapiSendText(telefone, formatarParaWhatsApp(resposta));
         return;
       }
       console.log(`[${telefone}] equipe em modo teste — atendendo como cliente`);
