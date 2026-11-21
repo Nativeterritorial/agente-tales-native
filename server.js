@@ -14,6 +14,7 @@ import { ehParceiro, processarMensagemParceiro } from "./parceiros.js";
 import { agendarLembretes, rodarLembretes } from "./lembretes.js";
 import { consultarClienteNoSistema, contextoDoSistema } from "./sistema.js";
 import { responderEquipe } from "./equipe.js";
+import { audioLigado, transcreverAudio } from "./audio.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -406,6 +407,7 @@ function normalizarEvolution(raw) {
   const out = {
     phone,
     fromMe,
+    key, // chave da mensagem: serve para baixar a mídia (áudio) pela Evolution
     isGroup,
     senderName,
     chatName: senderName,
@@ -549,13 +551,16 @@ app.post("/webhook", async (req, res) => {
         return;
       }
       if (modo === "equipe") {
-        const texto = body.text?.message || body.message || body.body || "";
+        let texto = body.text?.message || body.message || body.body || "";
+        if (!texto && body.audio) texto = (await transcreverAudio(body.key, telefone)) || "";
         if (!texto) {
-          await zapiSendText(telefone, "No modo equipe, por enquanto eu só entendo mensagem escrita.");
+          await zapiSendText(telefone, body.audio && !audioLigado()
+            ? "Ainda não consigo ouvir áudio: falta ligar a transcrição. Por enquanto, me escreve."
+            : body.audio ? "Não consegui entender o áudio. Pode repetir ou escrever?" : "No modo equipe, por enquanto eu entendo texto e áudio.");
           return;
         }
         console.log(`[${telefone}] equipe (${quem}): ${texto}`);
-        const resposta = await responderEquipe({ telefone: telCanon, quem, mensagem: texto, historico, salvarHistorico });
+        const resposta = await responderEquipe({ telefone: telCanon, telefoneEnvio: telefone, quem, mensagem: texto, historico, salvarHistorico, getEstado: () => getEstado(telefone), salvarEstado });
         if (resposta) await zapiSendText(telefone, formatarParaWhatsApp(resposta));
         return;
       }
@@ -602,8 +607,9 @@ app.post("/webhook", async (req, res) => {
 
     let mensagem = body.text?.message || body.message || body.body || "";
     // Áudio sem transcrição (Evolution não tem nativo) — pede pra digitar
+    if (!mensagem && body.audio) mensagem = (await transcreverAudio(body.key, telefone)) || "";
     if (!mensagem && body.audio) {
-      console.warn(`[${telefone}] áudio recebido — sem transcrição (Evolution)`);
+      console.warn(`[${telefone}] áudio recebido — sem transcrição`);
       await zapiSendText(telefone, "Recebi seu áudio 🎙️ mas não consigo escutar agora. Pode digitar pra mim?");
       return;
     }
